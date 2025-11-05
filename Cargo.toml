@@ -49,4 +49,3 @@ prometheus = "0.14"
 lazy_static = "1.5"
 
 [dev-dependencies]
-tempfile = "3.14"
