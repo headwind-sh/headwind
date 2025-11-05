@@ -9,7 +9,6 @@ use axum::{
     routing::post,
     Json, Router,
 };
-use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tower_http::trace::TraceLayer;

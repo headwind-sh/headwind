@@ -40,6 +40,7 @@ pub struct ApprovalRequest {
     pub reason: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateEvent {
     pub update_id: String,
@@ -48,6 +49,7 @@ pub struct UpdateEvent {
     pub message: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum EventType {

@@ -1,4 +1,4 @@
-use crate::metrics::{POLLING_CYCLES_TOTAL, POLLING_ERRORS_TOTAL, POLLING_IMAGES_CHECKED, POLLING_NEW_TAGS_FOUND};
+use crate::metrics::{POLLING_CYCLES_TOTAL, POLLING_IMAGES_CHECKED, POLLING_NEW_TAGS_FOUND};
 use crate::models::webhook::ImagePushEvent;
 use anyhow::Result;
 use oci_distribution::{Client as OciClient, Reference};
@@ -32,7 +32,9 @@ type ImageTagCache = Arc<RwLock<HashMap<String, String>>>;
 
 pub struct RegistryPoller {
     config: PollingConfig,
+    #[allow(dead_code)]
     cache: ImageTagCache,
+    #[allow(dead_code)]
     event_sender: crate::webhook::EventSender,
 }
 
@@ -87,6 +89,7 @@ impl RegistryPoller {
     }
 
     /// Poll a specific image for new tags
+    #[allow(dead_code)]
     pub async fn poll_image(&self, image: &str) -> Result<Option<String>> {
         let reference = Reference::try_from(image)?;
 
@@ -136,7 +139,7 @@ impl RegistryPoller {
 
         // Send event
         let event = ImagePushEvent {
-            registry: extract_registry(&reference.registry()),
+            registry: extract_registry(reference.registry()),
             repository: reference.repository().to_string(),
             tag: latest_tag.clone(),
             digest: None,
@@ -152,8 +155,8 @@ impl RegistryPoller {
     /// List tags for a given image reference
     async fn list_tags(
         &self,
-        client: &mut OciClient,
-        reference: &Reference,
+        _client: &mut OciClient,
+        _reference: &Reference,
     ) -> Result<Vec<String>> {
         // Note: This is a simplified implementation
         // Full implementation would need to handle:

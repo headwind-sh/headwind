@@ -57,6 +57,7 @@ pub struct ImagePushEvent {
     pub registry: String,
     pub repository: String,
     pub tag: String,
+    #[allow(dead_code)]
     pub digest: Option<String>,
 }
 

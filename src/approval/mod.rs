@@ -150,6 +150,7 @@ async fn health_check() -> impl IntoResponse {
 }
 
 // Public API for other modules to create update requests
+#[allow(dead_code)]
 pub async fn create_update_request(
     store: UpdateStore,
     request: UpdateRequest,
@@ -160,6 +161,7 @@ pub async fn create_update_request(
 }
 
 // Public API to get the update store reference
+#[allow(dead_code)]
 pub fn get_update_store() -> UpdateStore {
     Arc::new(RwLock::new(HashMap::new()))
 }

@@ -7,7 +7,7 @@ use axum::{
 };
 use lazy_static::lazy_static;
 use prometheus::{
-    Counter, Encoder, Gauge, Histogram, HistogramOpts, IntCounter, IntGauge, Opts, Registry, TextEncoder,
+    Encoder, Histogram, HistogramOpts, IntCounter, IntGauge, Registry, TextEncoder,
 };
 use tokio::task::JoinHandle;
 use tracing::info;

@@ -6,6 +6,7 @@ use tracing::{debug, info};
 pub struct PolicyEngine;
 
 impl PolicyEngine {
+    #[allow(dead_code)]
     pub fn should_update(
         &self,
         policy: &ResourcePolicy,
@@ -96,6 +97,7 @@ impl PolicyEngine {
     }
 }
 
+#[allow(dead_code)]
 fn glob_match(pattern: &str, text: &str) -> bool {
     // Simple glob matching - can be enhanced with a proper glob library
     if pattern == "*" {

@@ -1,11 +1,11 @@
+use anyhow::Result;
 use crate::metrics::{DEPLOYMENTS_WATCHED, RECONCILE_DURATION, RECONCILE_ERRORS};
 use crate::models::{ResourcePolicy, UpdatePolicy, annotations};
 use crate::policy::PolicyEngine;
-use anyhow::{Context as AnyhowContext, Result};
 use futures::StreamExt;
 use k8s_openapi::api::apps::v1::Deployment;
 use kube::{
-    api::{Api, ListParams, Patch, PatchParams},
+    api::{Api, Patch, PatchParams},
     client::Client,
     runtime::{controller::{Action, Controller}, watcher::Config},
     ResourceExt,
@@ -13,7 +13,7 @@ use kube::{
 use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, error, info, instrument};
 
 pub struct DeploymentController {
     client: Client,
@@ -59,12 +59,14 @@ impl DeploymentController {
 }
 
 struct ControllerContext {
+    #[allow(dead_code)]
     client: Client,
+    #[allow(dead_code)]
     policy_engine: Arc<PolicyEngine>,
 }
 
-#[instrument(skip(ctx, deployment), fields(deployment = %deployment.name_any()))]
-async fn reconcile(deployment: Arc<Deployment>, ctx: Arc<ControllerContext>) -> Result<Action, kube::Error> {
+#[instrument(skip(_ctx, deployment), fields(deployment = %deployment.name_any()))]
+async fn reconcile(deployment: Arc<Deployment>, _ctx: Arc<ControllerContext>) -> Result<Action, kube::Error> {
     let _timer = RECONCILE_DURATION.start_timer();
 
     let name = deployment.name_any();
@@ -157,6 +159,7 @@ fn parse_policy_from_annotations(
     Ok(policy)
 }
 
+#[allow(dead_code)]
 pub async fn update_deployment_image(
     client: Client,
     namespace: &str,
@@ -215,7 +218,7 @@ mod tests {
         let policy = parse_policy_from_annotations(&annotations).unwrap();
 
         assert_eq!(policy.policy, UpdatePolicy::Minor);
-        assert_eq!(policy.require_approval, false);
+        assert!(!policy.require_approval);
         assert_eq!(policy.images, vec!["nginx", "redis"]);
     }
 
@@ -225,7 +228,7 @@ mod tests {
         let policy = parse_policy_from_annotations(&annotations).unwrap();
 
         assert_eq!(policy.policy, UpdatePolicy::None);
-        assert_eq!(policy.require_approval, true);
+        assert!(policy.require_approval);
         assert_eq!(policy.min_update_interval, Some(300));
     }
 }
