@@ -45,7 +45,7 @@ chrono = { version = "0.4", features = ["serde"] }
 oci-distribution = { version = "0.11", features = ["rustls-tls"] }
 
 # Metrics
-prometheus = "0.13"
+prometheus = "0.14"
 lazy_static = "1.5"
 
 [dev-dependencies]
