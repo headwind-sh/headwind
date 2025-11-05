@@ -96,9 +96,6 @@ jobs:
       - name: Run tests
         run: cargo test --all-features --verbose
 
-      - name: Run doc tests
-        run: cargo test --doc --all-features
-
   # Check compilation
   check:
     name: Compilation Check
