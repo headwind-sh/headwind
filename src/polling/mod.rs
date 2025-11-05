@@ -1,4 +1,4 @@
-use crate::metrics::{POLLING_CYCLES_TOTAL, POLLING_ERRORS_TOTAL, POLLING_IMAGES_CHECKED, POLLING_NEW_TAGS_FOUND};
+use crate::metrics::{POLLING_CYCLES_TOTAL, POLLING_IMAGES_CHECKED, POLLING_NEW_TAGS_FOUND};
 use crate::models::webhook::ImagePushEvent;
 use anyhow::Result;
 use oci_distribution::{Client as OciClient, Reference};
@@ -21,7 +21,7 @@ pub struct PollingConfig {
 impl Default for PollingConfig {
     fn default() -> Self {
         Self {
-            interval: 300, // 5 minutes
+            interval: 300,  // 5 minutes
             enabled: false, // Disabled by default, webhooks preferred
         }
     }
@@ -32,15 +32,14 @@ type ImageTagCache = Arc<RwLock<HashMap<String, String>>>;
 
 pub struct RegistryPoller {
     config: PollingConfig,
+    #[allow(dead_code)]
     cache: ImageTagCache,
+    #[allow(dead_code)]
     event_sender: crate::webhook::EventSender,
 }
 
 impl RegistryPoller {
-    pub fn new(
-        config: PollingConfig,
-        event_sender: crate::webhook::EventSender,
-    ) -> Self {
+    pub fn new(config: PollingConfig, event_sender: crate::webhook::EventSender) -> Self {
         Self {
             config,
             cache: Arc::new(RwLock::new(HashMap::new())),
@@ -87,6 +86,7 @@ impl RegistryPoller {
     }
 
     /// Poll a specific image for new tags
+    #[allow(dead_code)]
     pub async fn poll_image(&self, image: &str) -> Result<Option<String>> {
         let reference = Reference::try_from(image)?;
 
@@ -103,7 +103,7 @@ impl RegistryPoller {
             Err(e) => {
                 warn!("Failed to list tags for {}: {}", image, e);
                 return Ok(None);
-            }
+            },
         };
 
         if tags.is_empty() {
@@ -136,7 +136,7 @@ impl RegistryPoller {
 
         // Send event
         let event = ImagePushEvent {
-            registry: extract_registry(&reference.registry()),
+            registry: extract_registry(reference.registry()),
             repository: reference.repository().to_string(),
             tag: latest_tag.clone(),
             digest: None,
@@ -152,8 +152,8 @@ impl RegistryPoller {
     /// List tags for a given image reference
     async fn list_tags(
         &self,
-        client: &mut OciClient,
-        reference: &Reference,
+        _client: &mut OciClient,
+        _reference: &Reference,
     ) -> Result<Vec<String>> {
         // Note: This is a simplified implementation
         // Full implementation would need to handle:
@@ -191,6 +191,9 @@ mod tests {
     fn test_extract_registry() {
         assert_eq!(extract_registry(""), "docker.io");
         assert_eq!(extract_registry("gcr.io"), "gcr.io");
-        assert_eq!(extract_registry("registry.example.com"), "registry.example.com");
+        assert_eq!(
+            extract_registry("registry.example.com"),
+            "registry.example.com"
+        );
     }
 }

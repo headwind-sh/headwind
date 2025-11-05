@@ -97,16 +97,21 @@ async fn approve_update(
         }
     }
 
-    (StatusCode::NOT_FOUND, Json(UpdateRequest {
-        id: id.clone(),
-        namespace: String::new(),
-        resource_name: String::new(),
-        resource_kind: crate::models::update::ResourceKind::Deployment,
-        current_image: String::new(),
-        new_image: String::new(),
-        created_at: chrono::Utc::now(),
-        status: UpdateStatus::Failed { reason: "Not found".to_string() },
-    }))
+    (
+        StatusCode::NOT_FOUND,
+        Json(UpdateRequest {
+            id: id.clone(),
+            namespace: String::new(),
+            resource_name: String::new(),
+            resource_kind: crate::models::update::ResourceKind::Deployment,
+            current_image: String::new(),
+            new_image: String::new(),
+            created_at: chrono::Utc::now(),
+            status: UpdateStatus::Failed {
+                reason: "Not found".to_string(),
+            },
+        }),
+    )
 }
 
 async fn reject_update(
@@ -133,16 +138,21 @@ async fn reject_update(
         }
     }
 
-    (StatusCode::NOT_FOUND, Json(UpdateRequest {
-        id: id.clone(),
-        namespace: String::new(),
-        resource_name: String::new(),
-        resource_kind: crate::models::update::ResourceKind::Deployment,
-        current_image: String::new(),
-        new_image: String::new(),
-        created_at: chrono::Utc::now(),
-        status: UpdateStatus::Failed { reason: "Not found".to_string() },
-    }))
+    (
+        StatusCode::NOT_FOUND,
+        Json(UpdateRequest {
+            id: id.clone(),
+            namespace: String::new(),
+            resource_name: String::new(),
+            resource_kind: crate::models::update::ResourceKind::Deployment,
+            current_image: String::new(),
+            new_image: String::new(),
+            created_at: chrono::Utc::now(),
+            status: UpdateStatus::Failed {
+                reason: "Not found".to_string(),
+            },
+        }),
+    )
 }
 
 async fn health_check() -> impl IntoResponse {
@@ -150,16 +160,15 @@ async fn health_check() -> impl IntoResponse {
 }
 
 // Public API for other modules to create update requests
-pub async fn create_update_request(
-    store: UpdateStore,
-    request: UpdateRequest,
-) -> Result<()> {
+#[allow(dead_code)]
+pub async fn create_update_request(store: UpdateStore, request: UpdateRequest) -> Result<()> {
     let mut updates = store.write().await;
     updates.insert(request.id.clone(), request);
     Ok(())
 }
 
 // Public API to get the update store reference
+#[allow(dead_code)]
 pub fn get_update_store() -> UpdateStore {
     Arc::new(RwLock::new(HashMap::new()))
 }

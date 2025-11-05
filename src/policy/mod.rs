@@ -6,6 +6,7 @@ use tracing::{debug, info};
 pub struct PolicyEngine;
 
 impl PolicyEngine {
+    #[allow(dead_code)]
     pub fn should_update(
         &self,
         policy: &ResourcePolicy,
@@ -16,15 +17,15 @@ impl PolicyEngine {
             UpdatePolicy::None => {
                 debug!("Policy is 'none', skipping update");
                 Ok(false)
-            }
+            },
             UpdatePolicy::Force => {
                 info!("Policy is 'force', allowing update");
                 Ok(true)
-            }
+            },
             UpdatePolicy::All => {
                 info!("Policy is 'all', allowing update");
                 Ok(current_version != new_version)
-            }
+            },
             UpdatePolicy::Glob => {
                 if let Some(pattern) = &policy.pattern {
                     let matches = glob_match(pattern, new_version);
@@ -33,24 +34,19 @@ impl PolicyEngine {
                 } else {
                     Ok(false)
                 }
-            }
+            },
             UpdatePolicy::Patch | UpdatePolicy::Minor | UpdatePolicy::Major => {
                 self.check_semver_policy(policy.policy, current_version, new_version)
-            }
+            },
         }
     }
 
-    fn check_semver_policy(
-        &self,
-        policy: UpdatePolicy,
-        current: &str,
-        new: &str,
-    ) -> Result<bool> {
+    fn check_semver_policy(&self, policy: UpdatePolicy, current: &str, new: &str) -> Result<bool> {
         // Try to parse as semver, stripping common prefixes
         let current_version = Self::parse_version(current)
             .context(format!("Failed to parse current version: {}", current))?;
-        let new_version = Self::parse_version(new)
-            .context(format!("Failed to parse new version: {}", new))?;
+        let new_version =
+            Self::parse_version(new).context(format!("Failed to parse new version: {}", new))?;
 
         if new_version <= current_version {
             debug!(
@@ -65,15 +61,15 @@ impl PolicyEngine {
                 // Only update if major and minor are the same
                 new_version.major == current_version.major
                     && new_version.minor == current_version.minor
-            }
+            },
             UpdatePolicy::Minor => {
                 // Update if major is the same
                 new_version.major == current_version.major
-            }
+            },
             UpdatePolicy::Major => {
                 // Update to any newer version
                 true
-            }
+            },
             _ => false,
         };
 
@@ -96,6 +92,7 @@ impl PolicyEngine {
     }
 }
 
+#[allow(dead_code)]
 fn glob_match(pattern: &str, text: &str) -> bool {
     // Simple glob matching - can be enhanced with a proper glob library
     if pattern == "*" {

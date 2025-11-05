@@ -1,15 +1,6 @@
-use crate::models::webhook::{
-    DockerHubWebhook, ImagePushEvent, RegistryWebhook,
-};
+use crate::models::webhook::{DockerHubWebhook, ImagePushEvent, RegistryWebhook};
 use anyhow::Result;
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
-    routing::post,
-    Json, Router,
-};
-use std::sync::Arc;
+use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::post, Json, Router};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tower_http::trace::TraceLayer;
@@ -61,7 +52,10 @@ async fn handle_registry_webhook(
     State(state): State<WebhookState>,
     Json(payload): Json<RegistryWebhook>,
 ) -> impl IntoResponse {
-    info!("Received registry webhook with {} events", payload.events.len());
+    info!(
+        "Received registry webhook with {} events",
+        payload.events.len()
+    );
 
     for event in payload.events {
         if event.action == "push" {
@@ -88,7 +82,10 @@ async fn handle_dockerhub_webhook(
     State(state): State<WebhookState>,
     Json(payload): Json<DockerHubWebhook>,
 ) -> impl IntoResponse {
-    info!("Received Docker Hub webhook for {}", payload.repository.repo_name);
+    info!(
+        "Received Docker Hub webhook for {}",
+        payload.repository.repo_name
+    );
 
     let push_event = ImagePushEvent {
         registry: "docker.io".to_string(),
@@ -113,10 +110,7 @@ async fn process_webhook_events(mut rx: EventReceiver) {
     info!("Starting webhook event processor");
 
     while let Some(event) = rx.recv().await {
-        info!(
-            "Processing image push event: {}",
-            event.full_image()
-        );
+        info!("Processing image push event: {}", event.full_image());
 
         // TODO: Query Kubernetes for resources watching this image
         // TODO: Check policies and create update requests
@@ -145,7 +139,10 @@ mod tests {
         assert_eq!(extract_registry("nginx"), "docker.io");
         assert_eq!(extract_registry("library/nginx"), "docker.io");
         assert_eq!(extract_registry("gcr.io/project/image"), "gcr.io");
-        assert_eq!(extract_registry("registry.example.com:5000/image"), "registry.example.com:5000");
+        assert_eq!(
+            extract_registry("registry.example.com:5000/image"),
+            "registry.example.com:5000"
+        );
     }
 
     #[test]

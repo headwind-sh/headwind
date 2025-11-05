@@ -81,5 +81,6 @@ pub mod annotations {
     pub const REQUIRE_APPROVAL: &str = "headwind.sh/require-approval";
     pub const MIN_UPDATE_INTERVAL: &str = "headwind.sh/min-update-interval";
     pub const IMAGES: &str = "headwind.sh/images";
+    #[allow(dead_code)]
     pub const LAST_UPDATE: &str = "headwind.sh/last-update";
 }

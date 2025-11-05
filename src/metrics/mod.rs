@@ -1,14 +1,7 @@
 use anyhow::Result;
-use axum::{
-    http::StatusCode,
-    response::IntoResponse,
-    routing::get,
-    Router,
-};
+use axum::{http::StatusCode, response::IntoResponse, routing::get, Router};
 use lazy_static::lazy_static;
-use prometheus::{
-    Counter, Encoder, Gauge, Histogram, HistogramOpts, IntCounter, IntGauge, Opts, Registry, TextEncoder,
-};
+use prometheus::{Encoder, Histogram, HistogramOpts, IntCounter, IntGauge, Registry, TextEncoder};
 use tokio::task::JoinHandle;
 use tracing::info;
 
@@ -99,8 +92,12 @@ lazy_static! {
 }
 
 pub fn register_metrics() {
-    REGISTRY.register(Box::new(WEBHOOK_EVENTS_TOTAL.clone())).ok();
-    REGISTRY.register(Box::new(WEBHOOK_EVENTS_PROCESSED.clone())).ok();
+    REGISTRY
+        .register(Box::new(WEBHOOK_EVENTS_TOTAL.clone()))
+        .ok();
+    REGISTRY
+        .register(Box::new(WEBHOOK_EVENTS_PROCESSED.clone()))
+        .ok();
     REGISTRY.register(Box::new(UPDATES_PENDING.clone())).ok();
     REGISTRY.register(Box::new(UPDATES_APPROVED.clone())).ok();
     REGISTRY.register(Box::new(UPDATES_REJECTED.clone())).ok();
@@ -108,12 +105,24 @@ pub fn register_metrics() {
     REGISTRY.register(Box::new(UPDATES_FAILED.clone())).ok();
     REGISTRY.register(Box::new(RECONCILE_DURATION.clone())).ok();
     REGISTRY.register(Box::new(RECONCILE_ERRORS.clone())).ok();
-    REGISTRY.register(Box::new(DEPLOYMENTS_WATCHED.clone())).ok();
-    REGISTRY.register(Box::new(HELM_RELEASES_WATCHED.clone())).ok();
-    REGISTRY.register(Box::new(POLLING_CYCLES_TOTAL.clone())).ok();
-    REGISTRY.register(Box::new(POLLING_ERRORS_TOTAL.clone())).ok();
-    REGISTRY.register(Box::new(POLLING_IMAGES_CHECKED.clone())).ok();
-    REGISTRY.register(Box::new(POLLING_NEW_TAGS_FOUND.clone())).ok();
+    REGISTRY
+        .register(Box::new(DEPLOYMENTS_WATCHED.clone()))
+        .ok();
+    REGISTRY
+        .register(Box::new(HELM_RELEASES_WATCHED.clone()))
+        .ok();
+    REGISTRY
+        .register(Box::new(POLLING_CYCLES_TOTAL.clone()))
+        .ok();
+    REGISTRY
+        .register(Box::new(POLLING_ERRORS_TOTAL.clone()))
+        .ok();
+    REGISTRY
+        .register(Box::new(POLLING_IMAGES_CHECKED.clone()))
+        .ok();
+    REGISTRY
+        .register(Box::new(POLLING_NEW_TAGS_FOUND.clone()))
+        .ok();
 
     info!("Metrics registered");
 }
@@ -150,14 +159,19 @@ async fn metrics_handler() -> impl IntoResponse {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("Failed to encode metrics: {}", e),
-        ).into_response();
+        )
+            .into_response();
     }
 
     (
         StatusCode::OK,
-        [(axum::http::header::CONTENT_TYPE, "text/plain; version=0.0.4")],
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; version=0.0.4",
+        )],
         buffer,
-    ).into_response()
+    )
+        .into_response()
 }
 
 async fn health_check() -> impl IntoResponse {

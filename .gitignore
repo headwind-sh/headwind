@@ -5,10 +5,7 @@ target/
 **/*.rs.bk
 *.pdb
 
-# Cargo lock file (exclude for libraries, include for binaries)
-# We're keeping it excluded since this is a binary project
-# but you may want to commit it for reproducible builds
-Cargo.lock
+# Cargo lock file - committed for reproducible builds (binary project)
 
 # Test coverage
 *.profraw

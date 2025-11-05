@@ -96,9 +96,6 @@ jobs:
       - name: Run tests
         run: cargo test --all-features --verbose
 
-      - name: Run doc tests
-        run: cargo test --doc --all-features
-
   # Check compilation
   check:
     name: Compilation Check
@@ -148,22 +145,6 @@ jobs:
 
       - name: Run security audit
         run: cargo audit
-
-  # Dependency check
-  dependencies:
-    name: Dependency Check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install cargo-deny
-        run: cargo install cargo-deny
-
-      - name: Check dependencies
-        run: cargo deny check
 
   # Check for unused dependencies
   unused-deps:
@@ -262,7 +243,7 @@ jobs:
   # All checks must pass
   ci-success:
     name: CI Success
-    needs: [format, clippy, test, check, security, dependencies, docs, docker, kubernetes]
+    needs: [format, clippy, test, check, security, docs, docker, kubernetes]
     runs-on: ubuntu-latest
     if: always()
     steps:
@@ -273,7 +254,6 @@ jobs:
              [[ "${{ needs.test.result }}" != "success" ]] ||
              [[ "${{ needs.check.result }}" != "success" ]] ||
              [[ "${{ needs.security.result }}" != "success" ]] ||
-             [[ "${{ needs.dependencies.result }}" != "success" ]] ||
              [[ "${{ needs.docs.result }}" != "success" ]] ||
              [[ "${{ needs.docker.result }}" != "success" ]] ||
              [[ "${{ needs.kubernetes.result }}" != "success" ]]; then

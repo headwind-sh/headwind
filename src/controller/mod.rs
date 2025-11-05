@@ -11,12 +11,11 @@ pub async fn start_controllers() -> Result<JoinHandle<()>> {
 
     let handle = tokio::spawn(async {
         // Start deployment controller
-        let deployment_controller = DeploymentController::new().await
+        let deployment_controller = DeploymentController::new()
+            .await
             .expect("Failed to create deployment controller");
 
-        let deployment_handle = tokio::spawn(async move {
-            deployment_controller.run().await
-        });
+        let deployment_handle = tokio::spawn(async move { deployment_controller.run().await });
 
         // TODO: Start Helm controller
         // let helm_handle = tokio::spawn(async move {
