@@ -1,0 +1,110 @@
+# Pre-commit hooks for Headwind
+# Install: pip install pre-commit
+# Setup: pre-commit install
+# Run manually: pre-commit run --all-files
+
+repos:
+  # Rust formatting
+  - repo: https://github.com/doublify/pre-commit-rust
+    rev: v1.0
+    hooks:
+      - id: fmt
+        name: cargo fmt
+        description: Run cargo fmt on all Rust files
+        entry: cargo fmt --all --
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+      - id: cargo-check
+        name: cargo check
+        description: Run cargo check to verify compilation
+        entry: cargo check --all-features --all-targets
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+      - id: clippy
+        name: cargo clippy
+        description: Run clippy for linting
+        entry: cargo clippy --all-features --all-targets -- -D warnings
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+  # General file checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+        name: Trim trailing whitespace
+      - id: end-of-file-fixer
+        name: Fix end of files
+      - id: check-yaml
+        name: Check YAML syntax
+        exclude: ^examples/
+      - id: check-added-large-files
+        name: Check for large files
+        args: ['--maxkb=1000']
+      - id: check-merge-conflict
+        name: Check for merge conflicts
+      - id: check-case-conflict
+        name: Check for case conflicts
+      - id: mixed-line-ending
+        name: Check line endings
+
+  # YAML linting
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.33.0
+    hooks:
+      - id: yamllint
+        name: Lint YAML files
+        args: ['-d', '{extends: default, rules: {line-length: {max: 120}, document-start: disable}}']
+
+  # Markdown linting
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.39.0
+    hooks:
+      - id: markdownlint
+        name: Lint Markdown files
+        args: ['--fix', '--disable', 'MD013', 'MD033', 'MD041']
+
+  # Security checks
+  - repo: local
+    hooks:
+      - id: cargo-audit
+        name: cargo audit
+        description: Check for security vulnerabilities
+        entry: bash -c 'cargo audit || echo "Warning: cargo-audit not installed. Run: cargo install cargo-audit"'
+        language: system
+        types: [rust]
+        pass_filenames: false
+        stages: [push]
+
+      - id: cargo-deny
+        name: cargo deny
+        description: Check dependencies for issues
+        entry: bash -c 'cargo deny check || echo "Warning: cargo-deny not installed. Run: cargo install cargo-deny"'
+        language: system
+        types: [rust]
+        pass_filenames: false
+        stages: [push]
+
+      - id: no-secrets
+        name: Check for secrets
+        description: Ensure no secrets are committed
+        entry: bash -c 'if git diff --cached --name-only | grep -E "secret|password|key|token" | grep -v ".pre-commit-config.yaml"; then echo "Warning: File names contain sensitive keywords"; exit 1; fi'
+        language: system
+        pass_filenames: false
+
+  # Cargo.toml checks
+  - repo: local
+    hooks:
+      - id: cargo-toml-sorted
+        name: Sort Cargo.toml dependencies
+        description: Keep dependencies alphabetically sorted
+        entry: bash -c 'cargo sort --check --workspace 2>/dev/null || echo "Info: cargo-sort not installed. Run: cargo install cargo-sort"'
+        language: system
+        types: [toml]
+        pass_filenames: false
+        stages: [manual]

@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: headwind
+  namespace: headwind-system
+  labels:
+    app: headwind
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: headwind
+  template:
+    metadata:
+      labels:
+        app: headwind
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: headwind
+      containers:
+      - name: headwind
+        image: headwind:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: webhook
+          containerPort: 8080
+          protocol: TCP
+        - name: api
+          containerPort: 8081
+          protocol: TCP
+        - name: metrics
+          containerPort: 9090
+          protocol: TCP
+        env:
+        - name: RUST_LOG
+          value: "headwind=info,kube=info"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 9090
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 9090
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1000
+          capabilities:
+            drop:
+            - ALL

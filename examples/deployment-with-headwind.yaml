@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-example
+  namespace: default
+  annotations:
+    # Enable Headwind with minor version updates
+    headwind.sh/policy: "minor"
+
+    # Require approval before updating
+    headwind.sh/require-approval: "true"
+
+    # Wait at least 5 minutes between updates
+    headwind.sh/min-update-interval: "300"
+
+    # Only track the nginx image
+    headwind.sh/images: "nginx"
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.25.0
+        ports:
+        - containerPort: 80
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-example
+  namespace: default
+  annotations:
+    # Auto-update patch versions without approval
+    headwind.sh/policy: "patch"
+    headwind.sh/require-approval: "false"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7.2.0
+        ports:
+        - containerPort: 6379
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-with-glob-pattern
+  namespace: default
+  annotations:
+    # Only update versions matching the pattern
+    headwind.sh/policy: "glob"
+    headwind.sh/pattern: "v1.*-stable"
+    headwind.sh/require-approval: "true"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: my-app
+  template:
+    metadata:
+      labels:
+        app: my-app
+    spec:
+      containers:
+      - name: app
+        image: myregistry.com/my-app:v1.0.0-stable
+        ports:
+        - containerPort: 8080

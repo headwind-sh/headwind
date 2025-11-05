@@ -1,0 +1,33 @@
+# Rust formatting configuration
+# https://rust-lang.github.io/rustfmt/
+# Only stable features (for use with stable Rust)
+
+edition = "2021"
+max_width = 100
+hard_tabs = false
+tab_spaces = 4
+newline_style = "Unix"
+
+# Imports
+imports_granularity = "Crate"
+group_imports = "StdExternalCrate"
+reorder_imports = true
+reorder_modules = true
+
+# Formatting
+fn_single_line = false
+where_single_line = false
+
+# Trailing
+trailing_comma = "Vertical"
+trailing_semicolon = true
+match_block_trailing_comma = true
+
+# Misc
+use_small_heuristics = "Default"
+use_field_init_shorthand = true
+force_explicit_abi = true
+struct_lit_single_line = true
+fn_params_layout = "Tall"
+brace_style = "SameLineWhere"
+control_brace_style = "AlwaysSameLine"

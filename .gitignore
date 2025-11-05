@@ -1,0 +1,60 @@
+# Rust build artifacts
+/target
+debug/
+target/
+**/*.rs.bk
+*.pdb
+
+# Cargo lock file (exclude for libraries, include for binaries)
+# We're keeping it excluded since this is a binary project
+# but you may want to commit it for reproducible builds
+Cargo.lock
+
+# Test coverage
+*.profraw
+*.profdata
+lcov.info
+coverage/
+
+# IDE / Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+*.sublime-*
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Docker
+.dockerignore
+
+# Kubernetes secrets (never commit these!)
+*secret*.yaml
+*-secret.yaml
+
+# Temporary files
+*.tmp
+*.temp
+.cache/

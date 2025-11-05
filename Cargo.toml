@@ -1,0 +1,52 @@
+[package]
+name = "headwind"
+version = "0.1.0"
+edition = "2021"
+authors = ["Headwind Contributors"]
+description = "A Kubernetes operator to automate workload updates based on container image changes"
+license = "MIT"
+repository = "https://github.com/b1tsized/headwind"
+
+[dependencies]
+# Kubernetes client
+kube = { version = "0.97", features = ["runtime", "derive", "client"] }
+k8s-openapi = { version = "0.23", features = ["v1_31"] }
+
+# Async runtime
+tokio = { version = "1.42", features = ["full"] }
+futures = "0.3"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+
+# HTTP client and server
+reqwest = { version = "0.12", features = ["json"] }
+axum = "0.7"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace"] }
+
+# Logging and tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Error handling
+anyhow = "1.0"
+thiserror = "2.0"
+
+# Semantic versioning
+semver = "1.0"
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# Container registry
+oci-distribution = { version = "0.11", features = ["rustls-tls"] }
+
+# Metrics
+prometheus = "0.13"
+lazy_static = "1.5"
+
+[dev-dependencies]
+tempfile = "3.14"

@@ -1,0 +1,76 @@
+name: Security
+
+on:
+  schedule:
+    # Run security checks daily at 00:00 UTC
+    - cron: '0 0 * * *'
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # Dependency vulnerability scanning
+  cargo-audit:
+    name: Cargo Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+
+      - name: Run cargo audit
+        run: cargo audit
+
+  # Secret scanning
+  gitleaks:
+    name: Secret Scanning
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # SAST (Static Application Security Testing)
+  semgrep:
+    name: Semgrep SAST
+    runs-on: ubuntu-latest
+    container:
+      image: returntocorp/semgrep
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Semgrep
+        run: semgrep ci
+        env:
+          SEMGREP_RULES: >-
+            p/security-audit
+            p/rust
+            p/dockerfile
+            p/kubernetes
+
+  # Supply chain security
+  cargo-vet:
+    name: Cargo Vet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-vet
+        run: cargo install cargo-vet
+
+      - name: Run cargo vet
+        run: cargo vet --locked
+        continue-on-error: true  # Don't fail on first run
