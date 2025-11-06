@@ -273,30 +273,28 @@ pub async fn handle_image_update(
 
     // Check minimum update interval
     let min_interval_seconds = policy.min_update_interval.unwrap_or(300);
-    if let Some(annotations) = &deployment.metadata.annotations {
-        if let Some(last_update_str) =
+    if let Some(annotations) = &deployment.metadata.annotations
+        && let Some(last_update_str) =
             annotations.get(crate::models::policy::annotations::LAST_UPDATE)
-        {
-            if let Ok(last_update) = chrono::DateTime::parse_from_rfc3339(last_update_str) {
-                let now = chrono::Utc::now();
-                let elapsed = now.signed_duration_since(last_update.with_timezone(&chrono::Utc));
-                let min_interval = chrono::Duration::seconds(min_interval_seconds as i64);
+        && let Ok(last_update) = chrono::DateTime::parse_from_rfc3339(last_update_str)
+    {
+        let now = chrono::Utc::now();
+        let elapsed = now.signed_duration_since(last_update.with_timezone(&chrono::Utc));
+        let min_interval = chrono::Duration::seconds(min_interval_seconds as i64);
 
-                if elapsed < min_interval {
-                    let remaining = min_interval - elapsed;
-                    info!(
-                        "Skipping update for {}/{} container {}: minimum interval not reached ({} < {}s), {} seconds remaining",
-                        namespace,
-                        name,
-                        container_name,
-                        elapsed.num_seconds(),
-                        min_interval_seconds,
-                        remaining.num_seconds()
-                    );
-                    crate::metrics::UPDATES_SKIPPED_INTERVAL.inc();
-                    return Ok(());
-                }
-            }
+        if elapsed < min_interval {
+            let remaining = min_interval - elapsed;
+            info!(
+                "Skipping update for {}/{} container {}: minimum interval not reached ({} < {}s), {} seconds remaining",
+                namespace,
+                name,
+                container_name,
+                elapsed.num_seconds(),
+                min_interval_seconds,
+                remaining.num_seconds()
+            );
+            crate::metrics::UPDATES_SKIPPED_INTERVAL.inc();
+            return Ok(());
         }
     }
 
