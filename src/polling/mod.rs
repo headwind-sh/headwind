@@ -197,6 +197,7 @@ impl RegistryPoller {
     /// Poll a specific image for updates
     /// Checks both for digest changes (same-tag updates) and new tags (new versions)
     #[allow(dead_code)]
+    #[allow(private_interfaces)]
     pub async fn poll_image(&self, image_info: &ImageToTrack) -> Result<Option<String>> {
         let image = &image_info.image;
         let reference = Reference::try_from(image.as_str())?;

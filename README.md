@@ -280,9 +280,71 @@ cargo build --release
 ### Test
 
 ```bash
+# Run all tests (unit + integration)
 make test
 # or
 cargo test
+
+# Run only unit tests
+cargo test --lib
+
+# Run only integration tests
+cargo test --test '*'
+
+# Run specific integration test file
+cargo test --test policy_integration_test
+cargo test --test webhook_integration_test
+
+# Run with output
+cargo test -- --nocapture
+```
+
+#### Test Structure
+
+The project includes both unit and integration tests:
+
+**Unit Tests** (24 tests) - Located within source modules (`src/`)
+- Test individual functions and components in isolation
+- Run with `cargo test --lib`
+
+**Integration Tests** (22 tests) - Located in `tests/` directory
+- Test end-to-end functionality and module interaction
+- `tests/policy_integration_test.rs` - Policy engine tests (12 tests)
+  - Semantic versioning policies (patch, minor, major)
+  - Special policies (all, none, force, glob)
+  - Version prefix handling (v1.0.0)
+  - Prerelease and build metadata
+  - Real-world scenarios (Kubernetes versions, Docker tags)
+- `tests/webhook_integration_test.rs` - Webhook parsing tests (10 tests)
+  - Docker Hub webhook format
+  - OCI registry webhook format
+  - Multiple events in single webhook
+  - Edge cases (missing tags, special characters)
+
+**Test Helpers** - Located in `tests/common/mod.rs`
+- Reusable test fixtures and helper functions
+- `create_test_deployment()` - Create Kubernetes Deployment fixtures
+- `headwind_annotations()` - Generate Headwind annotation sets
+- `create_dockerhub_webhook_payload()` - Docker Hub webhook JSON
+- `create_registry_webhook_payload()` - OCI registry webhook JSON
+
+#### Running Specific Test Categories
+
+```bash
+# Policy engine tests
+cargo test should_update
+
+# Webhook tests
+cargo test webhook
+
+# Test a specific policy type
+cargo test patch_policy
+cargo test minor_policy
+cargo test glob_policy
+
+# Test version handling
+cargo test version_prefix
+cargo test prerelease
 ```
 
 ### Development Tools

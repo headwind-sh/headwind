@@ -7,6 +7,16 @@ description = "A Kubernetes operator to automate workload updates based on conta
 license = "MIT"
 repository = "https://github.com/b1tsized/headwind"
 
+# Library for integration testing
+[lib]
+name = "headwind"
+path = "src/lib.rs"
+
+# Binary
+[[bin]]
+name = "headwind"
+path = "src/main.rs"
+
 [dependencies]
 # Kubernetes client
 kube = { version = "2.0", features = ["runtime", "derive", "client"] }
@@ -53,3 +63,8 @@ lazy_static = "1.5"
 base64 = "0.22"
 
 [dev-dependencies]
+# Testing utilities
+tokio-test = "0.4"
+assert-json-diff = "2.0"
+tempfile = "3.8"
+wiremock = "0.6"

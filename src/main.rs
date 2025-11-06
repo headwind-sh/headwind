@@ -1,12 +1,5 @@
-mod approval;
-mod controller;
-mod metrics;
-mod models;
-mod policy;
-mod polling;
-mod webhook;
-
 use anyhow::Result;
+use headwind::{approval, controller, metrics, polling, webhook};
 use tracing::info;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
