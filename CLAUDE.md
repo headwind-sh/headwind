@@ -40,34 +40,42 @@ Registry ──┬─→ Webhook Server ──→ Policy Engine → Approval Sys
   - `handle_dockerhub_webhook()` - Processes Docker Hub events
   - `process_webhook_events()` - Event processing loop (currently a stub)
 
-**TODO**: Connect webhook/polling events to the controller to create UpdateRequests
+**Status**: ✅ **COMPLETED** - Webhook events are now connected to the controller and create UpdateRequests
 
 #### 2. Registry Poller (`src/polling/mod.rs`)
-- **Purpose**: Alternative to webhooks - polls registries for new tags
+- **Purpose**: Alternative to webhooks - polls registries for new tags and digest changes
 - **Configuration**:
   - `HEADWIND_POLLING_ENABLED` - Enable/disable (default: false)
   - `HEADWIND_POLLING_INTERVAL` - Poll interval in seconds (default: 300)
 - **Key Functions**:
   - `start()` - Starts polling loop
   - `poll_registries()` - Main polling cycle
-  - `poll_image()` - Check specific image for new tags
+  - `get_tracked_images()` - Queries Kubernetes for Deployments with headwind annotations
+  - `poll_image()` - Checks specific image for digest changes and new tags
+  - `check_for_new_tags()` - Lists available tags and finds best match using PolicyEngine
 - **Metrics**:
   - `POLLING_CYCLES_TOTAL` - Total poll cycles
   - `POLLING_IMAGES_CHECKED` - Images checked
   - `POLLING_NEW_TAGS_FOUND` - New tags discovered
-  - `POLLING_ERRORS_TOTAL` - Errors encountered
 
 **Current State**:
 - ✅ Framework in place
 - ✅ Configuration support
 - ✅ Metrics tracking
-- ❌ Registry querying not fully implemented
-- ❌ Not connected to Kubernetes resource discovery
+- ✅ OCI registry integration (tag listing and manifest fetching)
+- ✅ Kubernetes resource discovery (queries Deployments with annotations)
+- ✅ Dual detection: digest changes (same-tag updates) + new version discovery
+- ✅ PolicyEngine integration for semver-aware tag selection
+- ✅ Sends events through webhook channel for processing
 
-**TODO**:
-1. Implement actual OCI registry tag listing
-2. Query Kubernetes for images to track
-3. Handle authentication for private registries
+**Features**:
+1. **Digest-based detection**: Detects when images are rebuilt and pushed to the same tag
+2. **Version discovery**: Lists all tags and finds the best match based on update policy
+3. **Smart filtering**: Skips non-version tags for semver policies
+4. **Deduplication**: Tracks unique image+policy combinations to avoid redundant checks
+5. **Caching**: Maintains in-memory cache of last seen tag+digest per image
+
+**Note**: Currently uses anonymous registry access. Private registry authentication support is planned.
 
 #### 3. Policy Engine (`src/policy/mod.rs`)
 - **Purpose**: Determines if an update should happen based on semantic versioning
@@ -85,33 +93,46 @@ Registry ──┬─→ Webhook Server ──→ Policy Engine → Approval Sys
   - `parse_version()` - Handles `v` prefix and other common patterns
 
 **Tests**: Well covered in `src/policy/mod.rs` tests module
+**Status**: ✅ **FULLY FUNCTIONAL** - Used by both webhook processing and registry polling
 
 #### 4. Approval System (`src/approval/mod.rs`)
 - **Port**: 8081
-- **Purpose**: HTTP API for managing update approvals
+- **Purpose**: HTTP API for managing update approvals and executing approved updates
 - **Endpoints**:
-  - `GET /api/v1/updates` - List all update requests
-  - `GET /api/v1/updates/:id` - Get specific update
-  - `POST /api/v1/updates/:id/approve` - Approve an update
-  - `POST /api/v1/updates/:id/reject` - Reject an update
-  - `/health` - Health check
-- **Storage**: In-memory HashMap (no persistence currently)
+  - `GET /api/v1/updates` - List all UpdateRequest CRDs across all namespaces
+  - `GET /api/v1/updates/{namespace}/{name}` - Get specific UpdateRequest
+  - `POST /api/v1/updates/{namespace}/{name}/approve` - Approve and execute an update
+  - `POST /api/v1/updates/{namespace}/{name}/reject` - Reject an update with reason
+  - `GET /health` - Health check
+- **Storage**: Kubernetes UpdateRequest CRDs (persistent via Kubernetes API)
 - **Key Types**:
-  - `UpdateRequest` - Represents a pending update
+  - `UpdateRequest` - CRD representing a pending update
   - `ApprovalRequest` - Approval/rejection payload
-  - `UpdateStatus` - PendingApproval, Approved, Rejected, Applied, Failed
+  - `UpdatePhase` - Pending, Completed, Rejected, Failed
 
-**TODO**:
-- Connect to controller to actually apply updates
-- Add persistence (optional - could use Kubernetes CRDs)
-- Add webhook notifications for approvals
+**Current State**:
+- ✅ Full CRUD operations on UpdateRequest CRDs
+- ✅ Approval workflow with approver tracking
+- ✅ Rejection workflow with reason tracking
+- ✅ Automatic update execution on approval
+- ✅ Status tracking with timestamps (approved_at, rejected_at, last_updated)
+- ✅ Error handling and reporting in UpdateRequest status
+
+**Key Functions**:
+  - `execute_update()` - Validates and applies approved updates to Deployments
+  - `approve_update()` - Approves request, executes update, updates CRD status
+  - `reject_update()` - Rejects request with reason, updates CRD status
 
 #### 5. Kubernetes Controller (`src/controller/deployment.rs`)
-- **Purpose**: Watches Deployments and manages updates
+- **Purpose**: Watches Deployments, processes image update events, and creates UpdateRequests
 - **Key Functions**:
-  - `reconcile()` - Main reconciliation loop
+  - `reconcile()` - Main reconciliation loop for Deployment changes
   - `parse_policy_from_annotations()` - Reads Headwind annotations
-  - `update_deployment_image()` - Updates container image (currently unused)
+  - `update_deployment_image()` - Updates container image in Deployment spec
+  - `process_webhook_events()` - Processes image push events from webhooks/polling
+  - `handle_image_event()` - Matches events to Deployments and creates UpdateRequests
+  - `find_matching_deployments()` - Queries Deployments that use specific image
+  - `extract_images_from_deployment()` - Gets all container images from Deployment
 - **Annotations Used**:
   - `headwind.sh/policy` - Update policy
   - `headwind.sh/pattern` - Glob pattern (for glob policy)
@@ -121,16 +142,15 @@ Registry ──┬─→ Webhook Server ──→ Policy Engine → Approval Sys
 
 **Current State**:
 - ✅ Watches all Deployments
-- ✅ Parses annotations
-- ❌ Doesn't create UpdateRequests yet
-- ❌ Doesn't apply updates yet
+- ✅ Parses annotations and builds ResourcePolicy
+- ✅ Processes webhook and polling events
+- ✅ Creates UpdateRequest CRDs for approval workflow
+- ✅ Directly applies updates when approval not required
+- ✅ Respects minimum update interval
+- ✅ Handles both namespaced and all-namespace queries
+- ✅ Deduplicates UpdateRequests to avoid spam
 
-**TODO**:
-1. Extract container images from Deployment spec
-2. On webhook event, match against watched Deployments
-3. Check policy to see if update should happen
-4. Create UpdateRequest if approval needed, or update directly
-5. Handle approval events and apply updates
+**Status**: ✅ **FULLY FUNCTIONAL** - Complete end-to-end workflow operational
 
 #### 6. Metrics (`src/metrics/mod.rs`)
 - **Port**: 9090
@@ -169,42 +189,39 @@ Registry ──┬─→ Webhook Server ──→ Policy Engine → Approval Sys
 - `DockerHubWebhook` - Docker Hub specific format
 - `ImagePushEvent` - Normalized internal format
 
-## Critical Implementation Gaps
+## ~~Critical Implementation Gaps~~ Implementation Status
 
-### 1. **Connect Webhook Events to Controller** (High Priority)
-Currently, webhook events are received but not processed. Need to:
-
-```rust
-// In src/webhook/mod.rs::process_webhook_events()
-async fn process_webhook_events(mut rx: EventReceiver) {
-    while let Some(event) = rx.recv().await {
-        // 1. Query Kubernetes for Deployments with headwind annotations
-        // 2. For each deployment, check if it uses this image
-        // 3. Extract current version and new version
-        // 4. Use PolicyEngine to check if update should happen
-        // 5. If yes and requires approval, create UpdateRequest
-        // 6. If yes and no approval needed, update directly
-    }
-}
-```
-
-### 2. **Implement Actual Updates** (High Priority)
-The `update_deployment_image()` function exists but needs integration:
+### ✅ 1. **Webhook Events Connected to Controller** (COMPLETED)
+Webhook and polling events are now fully connected to the controller:
 
 ```rust
-// In src/controller/deployment.rs
-// When approval is granted or no approval needed:
-// 1. Call update_deployment_image()
-// 2. Update metrics (UPDATES_APPLIED or UPDATES_FAILED)
-// 3. Add annotation for last update timestamp
-// 4. Emit Kubernetes event
+// In src/controller/deployment.rs::process_webhook_events()
+// ✅ Queries Kubernetes for Deployments with headwind annotations
+// ✅ Matches events to Deployments using the image
+// ✅ Extracts current and new versions
+// ✅ Uses PolicyEngine to validate update policy
+// ✅ Creates UpdateRequest CRD if approval required
+// ✅ Applies update directly if no approval needed
+// ✅ Respects minimum update interval
 ```
 
-### 3. **State Sharing Between Components** (Medium Priority)
-Currently, components are isolated. Need to:
-- Share the UpdateStore between approval and controller
-- Pass webhook events to controller
-- Consider using channels or shared Arc<RwLock<State>>
+### ✅ 2. **Update Application Implemented** (COMPLETED)
+Updates are now fully functional:
+
+```rust
+// In src/controller/deployment.rs & src/approval/mod.rs
+// ✅ update_deployment_image() updates container image in Deployment
+// ✅ Metrics updated (UPDATES_APPLIED, UPDATES_FAILED)
+// ✅ Last update timestamp tracked in UpdateRequest CRD
+// ✅ Error handling and status reporting
+// ✅ Approval workflow executes updates via approval API
+```
+
+### ✅ 3. **State Sharing Between Components** (COMPLETED)
+Components now communicate via:
+- ✅ Tokio channels for webhook/polling events
+- ✅ Kubernetes API for UpdateRequest CRDs (shared state)
+- ✅ Direct Kubernetes API access (no shared state needed)
 
 ### 4. **Helm Support** (Low Priority)
 Stub exists in `src/controller/helm.rs`. Would need:
@@ -465,11 +482,17 @@ Default: Polling disabled, webhooks recommended
 
 ## Future Enhancements
 
-### High Priority
-1. Complete webhook → controller integration
-2. Implement actual image updates
-3. Add integration tests with real cluster
-4. Persistent approval request storage (CRDs)
+### ~~High Priority~~ COMPLETED ✅
+1. ✅ Complete webhook → controller integration
+2. ✅ Implement actual image updates
+3. ✅ Persistent approval request storage (CRDs)
+4. ✅ Registry polling implementation
+
+### High Priority (Next)
+1. Add integration tests with real cluster
+2. Private registry authentication support
+3. Comprehensive end-to-end testing
+4. CI/CD pipeline for automated testing
 
 ### Medium Priority
 1. Helm Release support
@@ -477,6 +500,7 @@ Default: Polling disabled, webhooks recommended
 3. Web UI for approvals
 4. Slack/Teams notifications
 5. Rollback functionality
+6. Automatic rollback on deployment failures
 
 ### Low Priority
 1. Multi-cluster support
@@ -484,6 +508,7 @@ Default: Polling disabled, webhooks recommended
 3. Canary deployments
 4. A/B testing integration
 5. Rate limiting per namespace
+6. Advanced scheduling (maintenance windows, etc.)
 
 ## References
 
@@ -522,5 +547,5 @@ For questions about this codebase, open an issue on GitHub with the `question` l
 
 ---
 
-Last Updated: 2025-11-05
-Version: 0.1.0
+Last Updated: 2025-11-06
+Version: 0.2.0-alpha (Core functionality complete, awaiting integration tests)
