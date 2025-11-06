@@ -1,11 +1,12 @@
 use crate::metrics::{POLLING_CYCLES_TOTAL, POLLING_IMAGES_CHECKED, POLLING_NEW_TAGS_FOUND};
-use crate::models::policy::annotations;
+use crate::models::policy::{annotations, UpdatePolicy};
 use crate::models::webhook::ImagePushEvent;
 use anyhow::Result;
 use k8s_openapi::api::apps::v1::Deployment;
 use kube::{Api, Client};
-use oci_distribution::{Client as OciClient, Reference};
+use oci_distribution::{secrets::RegistryAuth, Client as OciClient, Reference};
 use std::collections::{HashMap, HashSet};
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
@@ -30,12 +31,28 @@ impl Default for PollingConfig {
     }
 }
 
-/// Tracks the last seen tag for each image
-type ImageTagCache = Arc<RwLock<HashMap<String, String>>>;
+/// Metadata for an image to track
+#[derive(Clone, Debug)]
+pub(crate) struct ImageToTrack {
+    image: String,
+    policy: UpdatePolicy,
+    #[allow(dead_code)] // Will be used for semver/glob matching in future
+    pattern: Option<String>,
+}
+
+/// Cache entry for tracking both tag and digest of an image
+#[derive(Clone, Debug, PartialEq)]
+struct CachedImageInfo {
+    tag: String,
+    digest: String,
+}
+
+/// Tracks the last seen tag and digest for each image
+type ImageCache = Arc<RwLock<HashMap<String, CachedImageInfo>>>;
 
 pub struct RegistryPoller {
     config: PollingConfig,
-    cache: ImageTagCache,
+    cache: ImageCache,
     event_sender: crate::webhook::EventSender,
     client: Client,
 }
@@ -87,12 +104,12 @@ impl RegistryPoller {
 
         // Get list of images to track from Kubernetes
         let images = self.get_tracked_images().await?;
-        info!("Found {} unique images to track", images.len());
+        info!("Found {} images to track", images.len());
 
-        // Poll each image for new tags
-        for image in images {
-            if let Err(e) = self.poll_image(&image).await {
-                error!("Failed to poll image {}: {}", image, e);
+        // Poll each image for updates
+        for image_info in images {
+            if let Err(e) = self.poll_image(&image_info).await {
+                error!("Failed to poll image {}: {}", image_info.image, e);
             }
         }
 
@@ -101,11 +118,12 @@ impl RegistryPoller {
     }
 
     /// Get the list of images to track from Kubernetes Deployments
-    async fn get_tracked_images(&self) -> Result<HashSet<String>> {
+    async fn get_tracked_images(&self) -> Result<Vec<ImageToTrack>> {
         let deployments: Api<Deployment> = Api::all(self.client.clone());
         let deployment_list = deployments.list(&Default::default()).await?;
 
-        let mut images = HashSet::new();
+        let mut images = Vec::new();
+        let mut seen = HashSet::new(); // Track unique image+policy combinations
 
         for deployment in deployment_list.items {
             let metadata = &deployment.metadata;
@@ -115,13 +133,23 @@ impl RegistryPoller {
             };
 
             // Skip deployments without headwind policy annotation
-            let policy = match annotations.get(annotations::POLICY) {
+            let policy_str = match annotations.get(annotations::POLICY) {
                 Some(p) if p != "none" => p,
                 _ => continue,
             };
 
+            let policy = match UpdatePolicy::from_str(policy_str) {
+                Ok(p) => p,
+                Err(e) => {
+                    warn!("Invalid policy '{}': {}", policy_str, e);
+                    continue;
+                },
+            };
+
+            let pattern = annotations.get(annotations::PATTERN).cloned();
+
             debug!(
-                "Processing deployment {}/{} with policy {}",
+                "Processing deployment {}/{} with policy {:?}",
                 metadata.namespace.as_ref().unwrap_or(&"default".to_string()),
                 metadata.name.as_ref().unwrap_or(&"unknown".to_string()),
                 policy
@@ -133,8 +161,16 @@ impl RegistryPoller {
             {
                 for container in &template.containers {
                     if let Some(image) = &container.image {
-                        debug!("  Adding image to track: {}", image);
-                        images.insert(image.clone());
+                        // Create unique key for deduplication
+                        let key = format!("{}::{:?}", image, policy);
+                        if seen.insert(key) {
+                            debug!("  Adding image to track: {} (policy: {:?})", image, policy);
+                            images.push(ImageToTrack {
+                                image: image.clone(),
+                                policy,
+                                pattern: pattern.clone(),
+                            });
+                        }
                     }
                 }
             }
@@ -143,87 +179,168 @@ impl RegistryPoller {
         Ok(images)
     }
 
-    /// Poll a specific image for new tags
+    /// Poll a specific image for updates
+    /// Checks both for digest changes (same-tag updates) and new tags (new versions)
     #[allow(dead_code)]
-    pub async fn poll_image(&self, image: &str) -> Result<Option<String>> {
-        let reference = Reference::try_from(image)?;
+    pub async fn poll_image(&self, image_info: &ImageToTrack) -> Result<Option<String>> {
+        let image = &image_info.image;
+        let reference = Reference::try_from(image.as_str())?;
+        let current_tag = reference.tag().unwrap_or("latest");
 
-        debug!("Polling image: {}", image);
+        debug!(
+            "Polling image: {} (tag: {}, policy: {:?})",
+            image, current_tag, image_info.policy
+        );
         POLLING_IMAGES_CHECKED.inc();
 
         // Create OCI client
-        let mut client = OciClient::new(Default::default());
+        let client = OciClient::new(Default::default());
+        let auth = &RegistryAuth::Anonymous;
 
-        // Get list of tags
-        // Note: Not all registries support tag listing
-        let tags = match self.list_tags(&mut client, &reference).await {
-            Ok(tags) => tags,
+        // Step 1: Check if the current tag's digest has changed
+        let current_digest = match client.fetch_manifest_digest(&reference, auth).await {
+            Ok(d) => d,
             Err(e) => {
-                warn!("Failed to list tags for {}: {}", image, e);
+                warn!("Failed to fetch digest for {}: {}", image, e);
                 return Ok(None);
             },
         };
 
-        if tags.is_empty() {
-            return Ok(None);
-        }
-
-        // Get the latest tag (you might want to sort by semver here)
-        let latest_tag = tags.first().unwrap();
+        debug!("Current digest for {}:{}: {}", image, current_tag, &current_digest[..16]);
 
         // Check cache
         let cache = self.cache.read().await;
-        let cached_tag = cache.get(image);
+        let cached_info = cache.get(image).cloned(); // Clone to avoid borrow issues
+        let cache_key = image.to_string();
+        drop(cache);
 
-        if let Some(cached) = cached_tag
-            && cached == latest_tag
-        {
-            // No change
-            return Ok(None);
+        // Check if current tag's digest changed (same-tag update detection)
+        if let Some(cached) = cached_info {
+            if cached.digest != current_digest {
+                info!(
+                    "Digest change detected for {}:{} - {} -> {}",
+                    image, current_tag, &cached.digest[..12], &current_digest[..12]
+                );
+
+                // Update cache
+                let mut cache = self.cache.write().await;
+                cache.insert(
+                    cache_key.clone(),
+                    CachedImageInfo {
+                        tag: current_tag.to_string(),
+                        digest: current_digest.clone(),
+                    },
+                );
+                drop(cache);
+
+                // Send event for digest change
+                self.send_update_event(&reference, current_tag, &current_digest)?;
+                POLLING_NEW_TAGS_FOUND.inc();
+                return Ok(Some(current_digest));
+            }
+        } else {
+            // First time seeing this image
+            debug!("First poll for {}, caching current state", image);
+            let mut cache = self.cache.write().await;
+            cache.insert(
+                cache_key.clone(),
+                CachedImageInfo {
+                    tag: current_tag.to_string(),
+                    digest: current_digest.clone(),
+                },
+            );
+            drop(cache);
         }
-        drop(cache);
 
-        // New tag found
-        info!("New tag found for {}: {}", image, latest_tag);
-        POLLING_NEW_TAGS_FOUND.inc();
+        // Step 2: Check for new tags (if policy allows)
+        if image_info.policy != UpdatePolicy::None && image_info.policy != UpdatePolicy::Force
+            && let Some(new_tag) = self.check_for_new_tags(&client, &reference, image_info).await?
+        {
+            info!("New tag discovered for {}: {} -> {}", image, current_tag, new_tag);
 
-        // Update cache
-        let mut cache = self.cache.write().await;
-        cache.insert(image.to_string(), latest_tag.clone());
-        drop(cache);
+            // Fetch digest for the new tag
+            let new_ref_str = format!("{}:{}", reference.repository(), new_tag);
+            let new_ref = Reference::try_from(new_ref_str.as_str())?;
 
-        // Send event
+            if let Ok(new_digest) = client.fetch_manifest_digest(&new_ref, auth).await {
+                // Update cache to new tag
+                let mut cache = self.cache.write().await;
+                cache.insert(
+                    cache_key,
+                    CachedImageInfo {
+                        tag: new_tag.clone(),
+                        digest: new_digest.clone(),
+                    },
+                );
+                drop(cache);
+
+                // Send event for new tag
+                self.send_update_event(&reference, &new_tag, &new_digest)?;
+                POLLING_NEW_TAGS_FOUND.inc();
+                return Ok(Some(new_digest));
+            }
+        }
+
+        Ok(None)
+    }
+
+    /// Check for new tags that match the policy
+    async fn check_for_new_tags(
+        &self,
+        client: &OciClient,
+        reference: &Reference,
+        image_info: &ImageToTrack,
+    ) -> Result<Option<String>> {
+        let auth = &RegistryAuth::Anonymous;
+
+        // List available tags
+        let tag_response = match client.list_tags(reference, auth, None, None).await {
+            Ok(resp) => resp,
+            Err(e) => {
+                debug!("Failed to list tags for {}: {} (registry may not support listing)",
+                    reference.repository(), e);
+                return Ok(None);
+            },
+        };
+
+        let current_tag = reference.tag().unwrap_or("latest");
+
+        // TODO: Implement proper version comparison based on policy
+        // For now, just return None as this requires semver parsing and comparison logic
+        // This is a placeholder for future implementation
+
+        debug!(
+            "Found {} tags for {} (current: {}, policy: {:?})",
+            tag_response.tags.len(),
+            reference.repository(),
+            current_tag,
+            image_info.policy
+        );
+
+        Ok(None)
+    }
+
+    /// Send an update event for a new image version
+    fn send_update_event(
+        &self,
+        reference: &Reference,
+        tag: &str,
+        digest: &str,
+    ) -> Result<()> {
         let event = ImagePushEvent {
             registry: extract_registry(reference.registry()),
             repository: reference.repository().to_string(),
-            tag: latest_tag.clone(),
-            digest: None,
+            tag: tag.to_string(),
+            digest: Some(digest.to_string()),
         };
 
         if let Err(e) = self.event_sender.send(event) {
             error!("Failed to send polling event: {}", e);
         }
 
-        Ok(Some(latest_tag.clone()))
+        Ok(())
     }
 
-    /// List tags for a given image reference
-    async fn list_tags(
-        &self,
-        _client: &mut OciClient,
-        _reference: &Reference,
-    ) -> Result<Vec<String>> {
-        // Note: This is a simplified implementation
-        // Full implementation would need to handle:
-        // - Authentication
-        // - Pagination
-        // - Different registry APIs
-        // - Rate limiting
-
-        // For now, return empty as this requires registry-specific implementation
-        warn!("Tag listing not fully implemented yet");
-        Ok(Vec::new())
-    }
 }
 
 fn extract_registry(registry: &str) -> String {
