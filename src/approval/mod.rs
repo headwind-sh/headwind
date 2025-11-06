@@ -1,10 +1,13 @@
-use crate::controller::update_deployment_image;
+use crate::controller::update_deployment_image_with_tracking;
 use crate::models::crd::{UpdatePhase, UpdateRequest, UpdateRequestStatus};
 use crate::models::update::ApprovalRequest;
+use crate::rollback::{
+    AutoRollbackConfig, HealthChecker, HealthStatus, RollbackManager, UpdateHistory,
+};
 use anyhow::Result;
 use axum::{
     Json, Router,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
@@ -13,6 +16,7 @@ use chrono::Utc;
 use k8s_openapi::api::apps::v1::Deployment;
 use kube::api::{Patch, PatchParams};
 use kube::{Api, Client};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::task::JoinHandle;
 use tower_http::trace::TraceLayer;
@@ -37,6 +41,14 @@ pub async fn start_approval_server() -> Result<JoinHandle<()>> {
         .route(
             "/api/v1/updates/{namespace}/{name}/reject",
             post(reject_update),
+        )
+        .route(
+            "/api/v1/rollback/{namespace}/{deployment}",
+            get(get_rollback_history),
+        )
+        .route(
+            "/api/v1/rollback/{namespace}/{deployment}",
+            post(rollback_deployment),
         )
         .route("/health", get(health_check))
         .layer(TraceLayer::new_for_http())
@@ -132,7 +144,14 @@ async fn approve_update(
     );
 
     // Execute the update
-    let update_result = execute_update(&state.client, &update_request).await;
+    let update_result = execute_update(
+        &state.client,
+        &update_request,
+        Some(name.clone()),
+        approval.approver.clone(),
+        true, // Enable automatic rollback monitoring
+    )
+    .await;
 
     // Update the CRD status
     let new_status = match update_result {
@@ -273,7 +292,13 @@ async fn reject_update(
     }
 }
 
-async fn execute_update(client: &Client, update_request: &UpdateRequest) -> Result<()> {
+async fn execute_update(
+    client: &Client,
+    update_request: &UpdateRequest,
+    update_request_name: Option<String>,
+    approved_by: Option<String>,
+    enable_auto_rollback: bool,
+) -> Result<()> {
     let spec = &update_request.spec;
     let target = &spec.target_ref;
 
@@ -296,7 +321,7 @@ async fn execute_update(client: &Client, update_request: &UpdateRequest) -> Resu
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Container name not specified in UpdateRequest"))?;
 
-    // Verify the deployment exists
+    // Verify the deployment exists and get auto-rollback config
     let deployments: Api<Deployment> = Api::namespaced(client.clone(), &target.namespace);
     let deployment = deployments.get(&target.name).await?;
 
@@ -320,17 +345,317 @@ async fn execute_update(client: &Client, update_request: &UpdateRequest) -> Resu
         ));
     }
 
-    // Call the update function
-    update_deployment_image(
+    // Get auto-rollback config from deployment annotations
+    let auto_rollback_config = deployment
+        .metadata
+        .annotations
+        .as_ref()
+        .map(AutoRollbackConfig::from_annotations)
+        .unwrap_or_default();
+
+    // Store the current image for potential rollback
+    let current_image = pod_spec
+        .containers
+        .iter()
+        .find(|c| c.name == *container_name)
+        .and_then(|c| c.image.as_ref())
+        .cloned();
+
+    // Call the update function with tracking metadata
+    update_deployment_image_with_tracking(
         client.clone(),
         &target.namespace,
         &target.name,
         container_name,
         &spec.new_image,
+        update_request_name.clone(),
+        approved_by.clone(),
     )
     .await?;
 
+    // If auto-rollback is enabled, spawn a background task to monitor health
+    if enable_auto_rollback && auto_rollback_config.enabled {
+        let client_clone = client.clone();
+        let deployment_name = target.name.clone();
+        let namespace = target.namespace.clone();
+        let container_name_clone = container_name.clone();
+        let new_image = spec.new_image.clone();
+
+        tokio::spawn(async move {
+            info!(
+                "Auto-rollback enabled for {}/{}, monitoring deployment health...",
+                namespace, deployment_name
+            );
+
+            let health_checker = HealthChecker::new(client_clone.clone());
+            match health_checker
+                .monitor_deployment_health(&deployment_name, &namespace, &auto_rollback_config)
+                .await
+            {
+                Ok(HealthStatus::Healthy) => {
+                    info!(
+                        "Deployment {}/{} is healthy after update to {}",
+                        namespace, deployment_name, new_image
+                    );
+                },
+                Ok(HealthStatus::Failed(reason)) => {
+                    error!(
+                        "Automatic rollback triggered for {}/{}: {}",
+                        namespace, deployment_name, reason
+                    );
+
+                    // Attempt rollback
+                    if let Some(rollback_image) = current_image {
+                        match update_deployment_image_with_tracking(
+                            client_clone,
+                            &namespace,
+                            &deployment_name,
+                            &container_name_clone,
+                            &rollback_image,
+                            None,
+                            Some("headwind-auto-rollback".to_string()),
+                        )
+                        .await
+                        {
+                            Ok(()) => {
+                                info!(
+                                    "Successfully rolled back {}/{} from {} to {}",
+                                    namespace, deployment_name, new_image, rollback_image
+                                );
+                            },
+                            Err(e) => {
+                                error!(
+                                    "Failed to rollback {}/{}: {}",
+                                    namespace, deployment_name, e
+                                );
+                            },
+                        }
+                    } else {
+                        warn!(
+                            "Cannot rollback {}/{}: no previous image found",
+                            namespace, deployment_name
+                        );
+                    }
+                },
+                Ok(HealthStatus::Timeout) => {
+                    error!(
+                        "Automatic rollback triggered for {}/{}: Health check timeout",
+                        namespace, deployment_name
+                    );
+
+                    // Attempt rollback
+                    if let Some(rollback_image) = current_image {
+                        match update_deployment_image_with_tracking(
+                            client_clone,
+                            &namespace,
+                            &deployment_name,
+                            &container_name_clone,
+                            &rollback_image,
+                            None,
+                            Some("headwind-auto-rollback".to_string()),
+                        )
+                        .await
+                        {
+                            Ok(()) => {
+                                info!(
+                                    "Successfully rolled back {}/{} from {} to {} due to timeout",
+                                    namespace, deployment_name, new_image, rollback_image
+                                );
+                            },
+                            Err(e) => {
+                                error!(
+                                    "Failed to rollback {}/{}: {}",
+                                    namespace, deployment_name, e
+                                );
+                            },
+                        }
+                    } else {
+                        warn!(
+                            "Cannot rollback {}/{}: no previous image found",
+                            namespace, deployment_name
+                        );
+                    }
+                },
+                Ok(HealthStatus::Progressing) => {
+                    warn!(
+                        "Deployment {}/{} still progressing after timeout",
+                        namespace, deployment_name
+                    );
+                },
+                Err(e) => {
+                    error!(
+                        "Error monitoring deployment {}/{}: {}",
+                        namespace, deployment_name, e
+                    );
+                },
+            }
+        });
+    }
+
     Ok(())
+}
+
+/// Query parameters for rollback
+#[derive(Debug, Deserialize)]
+struct RollbackQuery {
+    /// Container name to rollback (optional, defaults to all containers)
+    container: Option<String>,
+}
+
+/// Request body for rollback
+#[derive(Debug, Deserialize, Serialize)]
+struct RollbackRequest {
+    /// Container name to rollback
+    pub container: String,
+    /// Index of the history entry to rollback to (0 = current, 1 = previous, etc.)
+    /// If not specified, defaults to 1 (previous version)
+    pub index: Option<usize>,
+    /// User performing the rollback
+    pub user: Option<String>,
+    /// Reason for rollback
+    pub reason: Option<String>,
+}
+
+/// Get rollback history for a deployment
+async fn get_rollback_history(
+    State(state): State<ApprovalState>,
+    Path((namespace, deployment)): Path<(String, String)>,
+    Query(query): Query<RollbackQuery>,
+) -> Result<Json<UpdateHistory>, StatusCode> {
+    let rollback_manager = RollbackManager::new(state.client);
+
+    match rollback_manager.get_history(&deployment, &namespace).await {
+        Ok(history) => {
+            // If container is specified, filter to that container's history
+            if let Some(container) = query.container {
+                let filtered_entries: Vec<_> = history
+                    .entries()
+                    .iter()
+                    .filter(|e| e.container == container)
+                    .cloned()
+                    .collect();
+
+                let mut filtered_history = UpdateHistory::new();
+                for entry in filtered_entries {
+                    filtered_history.add_entry(entry);
+                }
+                Ok(Json(filtered_history))
+            } else {
+                Ok(Json(history))
+            }
+        },
+        Err(e) => {
+            error!(
+                "Failed to get rollback history for {}/{}: {}",
+                namespace, deployment, e
+            );
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        },
+    }
+}
+
+/// Rollback a deployment to a previous version
+async fn rollback_deployment(
+    State(state): State<ApprovalState>,
+    Path((namespace, deployment)): Path<(String, String)>,
+    Json(request): Json<RollbackRequest>,
+) -> impl IntoResponse {
+    let rollback_manager = RollbackManager::new(state.client.clone());
+    let index = request.index.unwrap_or(1); // Default to previous version
+
+    info!(
+        "Rollback requested for {}/{} container {} to index {} by {:?}",
+        namespace,
+        deployment,
+        request.container,
+        index,
+        request.user.as_deref().unwrap_or("unknown")
+    );
+
+    // Get the target image from history
+    let target_image = match rollback_manager
+        .get_image_by_index(&deployment, &namespace, &request.container, index)
+        .await
+    {
+        Ok(Some(image)) => image,
+        Ok(None) => {
+            warn!(
+                "No history entry found at index {} for {}/{} container {}",
+                index, namespace, deployment, request.container
+            );
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({
+                    "error": format!("No history entry found at index {}", index),
+                    "deployment": deployment,
+                    "container": request.container,
+                    "index": index
+                })),
+            );
+        },
+        Err(e) => {
+            error!(
+                "Failed to get rollback history for {}/{}: {}",
+                namespace, deployment, e
+            );
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Failed to retrieve rollback history: {}", e)})),
+            );
+        },
+    };
+
+    info!(
+        "Rolling back {}/{} container {} to image {}",
+        namespace, deployment, request.container, target_image
+    );
+
+    // Perform the rollback
+    let rollback_result = update_deployment_image_with_tracking(
+        state.client.clone(),
+        &namespace,
+        &deployment,
+        &request.container,
+        &target_image,
+        None, // No UpdateRequest for manual rollbacks
+        request.user.clone(),
+    )
+    .await;
+
+    match rollback_result {
+        Ok(()) => {
+            info!(
+                "Successfully rolled back {}/{} container {} to {}",
+                namespace, deployment, request.container, target_image
+            );
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "message": "Rollback successful",
+                    "deployment": deployment,
+                    "namespace": namespace,
+                    "container": request.container,
+                    "image": target_image,
+                    "user": request.user,
+                    "reason": request.reason
+                })),
+            )
+        },
+        Err(e) => {
+            error!(
+                "Failed to rollback {}/{} container {}: {}",
+                namespace, deployment, request.container, e
+            );
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "error": format!("Rollback failed: {}", e),
+                    "deployment": deployment,
+                    "container": request.container
+                })),
+            )
+        },
+    }
 }
 
 async fn health_check() -> impl IntoResponse {

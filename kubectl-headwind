@@ -1,0 +1,324 @@
+#!/usr/bin/env bash
+#
+# kubectl-headwind - kubectl plugin for Headwind operations
+#
+# Usage:
+#   kubectl headwind rollback <deployment> [container]
+#   kubectl headwind history <deployment>
+#   kubectl headwind approve <update-request>
+#   kubectl headwind reject <update-request> [reason]
+#   kubectl headwind list
+#
+
+set -e
+
+HEADWIND_API_SERVICE="${HEADWIND_API_SERVICE:-headwind-api.headwind-system.svc.cluster.local:8081}"
+HEADWIND_API_URL="${HEADWIND_API_URL:-http://${HEADWIND_API_SERVICE}}"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+function error() {
+    echo -e "${RED}Error: $1${NC}" >&2
+    exit 1
+}
+
+function success() {
+    echo -e "${GREEN}$1${NC}"
+}
+
+function info() {
+    echo -e "${BLUE}$1${NC}"
+}
+
+function warn() {
+    echo -e "${YELLOW}$1${NC}"
+}
+
+function usage() {
+    cat <<EOF
+kubectl-headwind - Manage Headwind image updates and rollbacks
+
+Usage:
+  kubectl headwind rollback <deployment> [container] [options]
+  kubectl headwind history <deployment> [options]
+  kubectl headwind approve <update-request> [options]
+  kubectl headwind reject <update-request> [reason] [options]
+  kubectl headwind list [options]
+  kubectl headwind help
+
+Commands:
+  rollback      Rollback a deployment to the previous image
+  history       Show update history for a deployment
+  approve       Approve a pending update request
+  reject        Reject a pending update request
+  list          List all pending update requests
+  help          Show this help message
+
+Options:
+  -n, --namespace <namespace>   Namespace (default: current context namespace)
+  --api-url <url>              Headwind API URL (default: ${HEADWIND_API_URL})
+  --approver <email>           Approver email for approve/reject operations
+
+Examples:
+  # Rollback a deployment
+  kubectl headwind rollback nginx-deployment -n production
+
+  # Rollback a specific container
+  kubectl headwind rollback nginx-deployment nginx -n production
+
+  # View update history
+  kubectl headwind history nginx-deployment -n production
+
+  # List pending updates
+  kubectl headwind list
+
+  # Approve an update
+  kubectl headwind approve nginx-update-1-26-0 --approver admin@example.com
+
+  # Reject an update
+  kubectl headwind reject nginx-update-1-26-0 "Not ready for production" --approver admin@example.com
+
+Environment Variables:
+  HEADWIND_API_URL             Override the default API URL
+  HEADWIND_API_SERVICE         Override the default service name
+  HEADWIND_APPROVER            Default approver email
+
+EOF
+}
+
+function get_namespace() {
+    if [ -n "$NAMESPACE" ]; then
+        echo "$NAMESPACE"
+    else
+        kubectl config view --minify --output 'jsonpath={..namespace}' 2>/dev/null || echo "default"
+    fi
+}
+
+function port_forward_if_needed() {
+    # Check if we can reach the API directly
+    if ! curl -s --max-time 2 "${HEADWIND_API_URL}/health" >/dev/null 2>&1; then
+        warn "Cannot reach Headwind API at ${HEADWIND_API_URL}"
+        info "You may need to port-forward:"
+        info "  kubectl port-forward -n headwind-system svc/headwind-api 8081:8081"
+        info ""
+        info "Or set HEADWIND_API_URL to use an external URL:"
+        info "  export HEADWIND_API_URL=https://headwind.example.com"
+        return 1
+    fi
+    return 0
+}
+
+function rollback_deployment() {
+    local deployment="$1"
+    local container="$2"
+    local namespace=$(get_namespace)
+
+    if [ -z "$deployment" ]; then
+        error "Deployment name is required"
+    fi
+
+    # If no container specified, get the first container from the deployment
+    if [ -z "$container" ]; then
+        info "No container specified, getting first container from deployment..."
+        container=$(kubectl get deployment "$deployment" -n "$namespace" -o jsonpath='{.spec.template.spec.containers[0].name}' 2>/dev/null)
+        if [ -z "$container" ]; then
+            error "Could not determine container name from deployment"
+        fi
+        info "Using container: $container"
+    fi
+
+    port_forward_if_needed || return 1
+
+    info "Rolling back deployment/$deployment container $container in namespace $namespace..."
+
+    local response=$(curl -s -X POST "${HEADWIND_API_URL}/api/v1/rollback/${namespace}/${deployment}/${container}" \
+        -H "Content-Type: application/json" \
+        -w "\n%{http_code}")
+
+    local http_code=$(echo "$response" | tail -n1)
+    local body=$(echo "$response" | head -n-1)
+
+    if [ "$http_code" = "200" ]; then
+        success "Rollback successful!"
+        echo "$body" | jq -r '.message // .' 2>/dev/null || echo "$body"
+    else
+        error "Rollback failed (HTTP $http_code): $body"
+    fi
+}
+
+function show_history() {
+    local deployment="$1"
+    local namespace=$(get_namespace)
+
+    if [ -z "$deployment" ]; then
+        error "Deployment name is required"
+    fi
+
+    port_forward_if_needed || return 1
+
+    info "Fetching update history for deployment/$deployment in namespace $namespace..."
+
+    local response=$(curl -s "${HEADWIND_API_URL}/api/v1/rollback/${namespace}/${deployment}/history" \
+        -w "\n%{http_code}")
+
+    local http_code=$(echo "$response" | tail -n1)
+    local body=$(echo "$response" | head -n-1)
+
+    if [ "$http_code" = "200" ]; then
+        echo "$body" | jq -r '
+            if type == "array" then
+                "Container | Image | Timestamp | Approved By | Update Request",
+                "----------|-------|-----------|-------------|---------------",
+                (.[] | [.container, .image, .timestamp, (.approvedBy // "N/A"), (.updateRequestName // "N/A")] | @tsv)
+            else
+                .
+            end
+        ' 2>/dev/null || echo "$body"
+    else
+        error "Failed to fetch history (HTTP $http_code): $body"
+    fi
+}
+
+function approve_update() {
+    local update_request="$1"
+    local approver="${APPROVER:-${HEADWIND_APPROVER:-system}}"
+    local namespace=$(get_namespace)
+
+    if [ -z "$update_request" ]; then
+        error "Update request name is required"
+    fi
+
+    port_forward_if_needed || return 1
+
+    info "Approving update request $update_request in namespace $namespace..."
+
+    local response=$(curl -s -X POST "${HEADWIND_API_URL}/api/v1/updates/${namespace}/${update_request}/approve" \
+        -H "Content-Type: application/json" \
+        -d "{\"approver\":\"${approver}\"}" \
+        -w "\n%{http_code}")
+
+    local http_code=$(echo "$response" | tail -n1)
+    local body=$(echo "$response" | head -n-1)
+
+    if [ "$http_code" = "200" ]; then
+        success "Update approved successfully!"
+        echo "$body" | jq '.' 2>/dev/null || echo "$body"
+    else
+        error "Failed to approve update (HTTP $http_code): $body"
+    fi
+}
+
+function reject_update() {
+    local update_request="$1"
+    local reason="${2:-No reason provided}"
+    local approver="${APPROVER:-${HEADWIND_APPROVER:-system}}"
+    local namespace=$(get_namespace)
+
+    if [ -z "$update_request" ]; then
+        error "Update request name is required"
+    fi
+
+    port_forward_if_needed || return 1
+
+    info "Rejecting update request $update_request in namespace $namespace..."
+
+    local response=$(curl -s -X POST "${HEADWIND_API_URL}/api/v1/updates/${namespace}/${update_request}/reject" \
+        -H "Content-Type: application/json" \
+        -d "{\"approver\":\"${approver}\",\"reason\":\"${reason}\"}" \
+        -w "\n%{http_code}")
+
+    local http_code=$(echo "$response" | tail -n1)
+    local body=$(echo "$response" | head -n-1)
+
+    if [ "$http_code" = "200" ]; then
+        success "Update rejected successfully!"
+        echo "$body" | jq '.' 2>/dev/null || echo "$body"
+    else
+        error "Failed to reject update (HTTP $http_code): $body"
+    fi
+}
+
+function list_updates() {
+    port_forward_if_needed || return 1
+
+    info "Fetching pending update requests..."
+
+    local response=$(curl -s "${HEADWIND_API_URL}/api/v1/updates" \
+        -w "\n%{http_code}")
+
+    local http_code=$(echo "$response" | tail -n1)
+    local body=$(echo "$response" | head -n-1)
+
+    if [ "$http_code" = "200" ]; then
+        echo "$body" | jq -r '
+            if type == "array" then
+                "Namespace | Name | Deployment | Current Image | New Image | Phase",
+                "----------|------|------------|---------------|-----------|------",
+                (.[] | [.namespace, .name, .deployment, .currentImage, .newImage, .phase] | @tsv)
+            else
+                .
+            end
+        ' 2>/dev/null || echo "$body"
+    else
+        error "Failed to list updates (HTTP $http_code): $body"
+    fi
+}
+
+# Parse command line arguments
+NAMESPACE=""
+APPROVER=""
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -n|--namespace)
+            NAMESPACE="$2"
+            shift 2
+            ;;
+        --api-url)
+            HEADWIND_API_URL="$2"
+            shift 2
+            ;;
+        --approver)
+            APPROVER="$2"
+            shift 2
+            ;;
+        rollback|history|approve|reject|list|help)
+            COMMAND="$1"
+            shift
+            break
+            ;;
+        *)
+            error "Unknown option: $1\nUse 'kubectl headwind help' for usage information"
+            ;;
+    esac
+done
+
+# Execute command
+case "${COMMAND:-help}" in
+    rollback)
+        rollback_deployment "$@"
+        ;;
+    history)
+        show_history "$@"
+        ;;
+    approve)
+        approve_update "$@"
+        ;;
+    reject)
+        reject_update "$@"
+        ;;
+    list)
+        list_updates "$@"
+        ;;
+    help|--help|-h)
+        usage
+        ;;
+    *)
+        error "Unknown command: ${COMMAND}\nUse 'kubectl headwind help' for usage information"
+        ;;
+esac

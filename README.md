@@ -9,6 +9,7 @@ Headwind monitors container registries and automatically updates your Kubernetes
 - **Dual Update Triggers**: Event-driven webhooks **or** registry polling for maximum flexibility
 - **Semver Policy Engine**: Intelligent update decisions based on semantic versioning (patch, minor, major, glob, force, all)
 - **Approval Workflow**: Full HTTP API for approval requests with integration possibilities (Slack, webhooks, etc.)
+- **Rollback Support**: Manual rollback to previous versions with update history tracking and automatic rollback on failures
 - **Full Observability**: Prometheus metrics, distributed tracing, and structured logging
 - **Resource Support**:
   - Kubernetes Deployments ✅
@@ -64,6 +65,15 @@ metadata:
 
     # Specific images to track (comma-separated, empty = all)
     headwind.sh/images: "nginx, redis"
+
+    # Automatic rollback on deployment failures (default: false)
+    headwind.sh/auto-rollback: "true"
+
+    # Rollback timeout in seconds (default: 300)
+    headwind.sh/rollback-timeout: "300"
+
+    # Health check retries before rollback (default: 3)
+    headwind.sh/health-check-retries: "3"
 spec:
   # ... rest of deployment spec
 ```
@@ -195,6 +205,111 @@ curl -X POST http://localhost:8081/api/v1/updates/default/nginx-update-1-26-0/ap
 
 **Note**: Approving an update immediately executes the deployment update and updates the UpdateRequest CRD status.
 
+### Rollback API
+
+Headwind automatically tracks update history for all deployments and provides manual rollback capabilities.
+
+#### Using kubectl Plugin (Recommended)
+
+```bash
+# Install the kubectl plugin
+sudo cp kubectl-headwind /usr/local/bin/
+sudo chmod +x /usr/local/bin/kubectl-headwind
+
+# Rollback a deployment
+kubectl headwind rollback nginx-deployment -n production
+
+# View update history
+kubectl headwind history nginx-deployment -n production
+
+# List all pending updates
+kubectl headwind list
+
+# Approve/reject updates
+kubectl headwind approve nginx-update-v1-27-0 --approver admin@example.com
+kubectl headwind reject nginx-update-v1-27-0 "Not ready" --approver admin@example.com
+```
+
+See [KUBECTL_PLUGIN.md](KUBECTL_PLUGIN.md) for complete plugin documentation.
+
+#### Using curl directly
+
+```bash
+# Get update history for a deployment
+curl http://headwind-api:8081/api/v1/rollback/{namespace}/{deployment}/history
+
+# Rollback to the previous image
+curl -X POST http://headwind-api:8081/api/v1/rollback/{namespace}/{deployment}/{container}
+
+# Example: Rollback nginx deployment
+curl -X POST http://localhost:8081/api/v1/rollback/default/nginx-example/nginx
+
+# Get history
+curl http://localhost:8081/api/v1/rollback/default/nginx-example/history
+```
+
+#### Automatic Rollback
+
+When enabled, Headwind automatically monitors deployment health after updates and rolls back if failures are detected:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-app
+  annotations:
+    # Enable automatic rollback (default: false)
+    headwind.sh/auto-rollback: "true"
+
+    # How long to monitor deployment health (default: 300s)
+    headwind.sh/rollback-timeout: "300"
+
+    # Number of failed health checks before rollback (default: 3)
+    headwind.sh/health-check-retries: "3"
+```
+
+Automatic rollback triggers on:
+- **CrashLoopBackOff**: Pods repeatedly crashing
+- **ImagePullBackOff**: Unable to pull new image
+- **High restart count**: Container restarts > 5 times
+- **Readiness failures**: Pods not becoming ready
+- **Deployment deadline exceeded**: ProgressDeadlineExceeded condition
+
+When a failure is detected, Headwind automatically:
+1. Logs the failure reason
+2. Reverts to the previous working image
+3. Creates a rollback entry in the update history
+4. Continues monitoring the rolled-back deployment
+
+#### Update History
+
+All updates are tracked in deployment annotations:
+
+```bash
+# View update history in deployment annotations
+kubectl get deployment my-app -o jsonpath='{.metadata.annotations.headwind\.sh/update-history}' | jq
+
+# Example output:
+[
+  {
+    "container": "app",
+    "image": "myapp:v1.2.0",
+    "timestamp": "2025-11-06T10:30:00Z",
+    "updateRequestName": "myapp-update-v1-2-0",
+    "approvedBy": "admin@example.com"
+  },
+  {
+    "container": "app",
+    "image": "myapp:v1.1.0",
+    "timestamp": "2025-11-05T14:20:00Z",
+    "updateRequestName": "myapp-update-v1-1-0",
+    "approvedBy": "webhook"
+  }
+]
+```
+
+Headwind keeps the last 10 updates per container.
+
 ### Metrics (Port 9090)
 
 Prometheus metrics available at:
@@ -303,11 +418,11 @@ cargo test -- --nocapture
 
 The project includes both unit and integration tests:
 
-**Unit Tests** (24 tests) - Located within source modules (`src/`)
+**Unit Tests** (30 tests) - Located within source modules (`src/`)
 - Test individual functions and components in isolation
 - Run with `cargo test --lib`
 
-**Integration Tests** (22 tests) - Located in `tests/` directory
+**Integration Tests** (40 tests) - Located in `tests/` directory
 - Test end-to-end functionality and module interaction
 - `tests/policy_integration_test.rs` - Policy engine tests (12 tests)
   - Semantic versioning policies (patch, minor, major)
@@ -320,6 +435,12 @@ The project includes both unit and integration tests:
   - OCI registry webhook format
   - Multiple events in single webhook
   - Edge cases (missing tags, special characters)
+- `tests/rollback_integration_test.rs` - Rollback functionality tests (18 tests)
+  - Update history tracking and serialization
+  - Automatic rollback configuration
+  - Health status monitoring
+  - History entry management (max entries, multiple containers)
+  - camelCase JSON serialization
 
 **Test Helpers** - Located in `tests/common/mod.rs`
 - Reusable test fixtures and helper functions
@@ -408,17 +529,19 @@ Headwind is currently in **beta** stage (v0.2.0-alpha). Core functionality is co
 - ✅ Minimum update interval respected
 - ✅ Deduplication to avoid update request spam
 - ✅ Private registry authentication (Docker Hub, ECR, GCR, ACR, Harbor, GHCR, GitLab)
+- ✅ Manual rollback functionality with update history tracking
+- ✅ Automatic rollback on deployment failures
 
 ### 🚧 In Progress
-- 🚧 Comprehensive integration tests (manual testing successful)
+- 🚧 Comprehensive integration tests (70 tests passing, manual testing successful)
 - 🚧 CI/CD pipeline enhancements
+- 🚧 Rollback metrics and kubectl plugin
 
 ### 📋 Planned Features
 - StatefulSet and DaemonSet support
 - Helm Release support
 - Web UI for approvals
 - Notification integrations (Slack, Teams, webhooks)
-- Rollback functionality
 
 **Production readiness**: Core workflow is functional. Suitable for testing environments. For production use, we recommend waiting for comprehensive integration tests and private registry support.
 
@@ -559,15 +682,17 @@ spec:
 
 ### v0.3.0 - Extended Support (Medium Priority)
 - [x] Private registry authentication (completed)
+- [x] Manual rollback functionality (completed)
+- [x] Automatic rollback on deployment failures (completed)
+- [x] Rollback metrics (completed)
+- [x] kubectl plugin for rollback and approvals (completed)
 - [ ] Helm Release support
 - [ ] StatefulSet/DaemonSet support
 - [ ] Notification system (Slack, Teams, generic webhooks)
 - [ ] Multi-architecture Docker images (arm64, amd64)
-- [ ] Automatic rollback on deployment failures
 
 ### v0.4.0 - Enhanced UX (Low Priority)
 - [ ] Web dashboard for approvals
-- [ ] Manual rollback functionality
 - [ ] Custom Resource Definition for policy config
 - [ ] Slack/Teams interactive approvals
 - [ ] Advanced scheduling (maintenance windows, etc.)
@@ -603,7 +728,11 @@ Simply configure your ServiceAccount's imagePullSecrets as usual, and Headwind w
 
 **Q: What about rollbacks?**
 
-A: Planned for v0.4.0. For now, use `kubectl rollout undo` or your GitOps tool.
+A: Headwind includes both manual and automatic rollback support:
+- **Manual rollback**: Use the API to rollback to previous versions (`POST /api/v1/rollback/{namespace}/{deployment}/{container}`)
+- **Automatic rollback**: Enable `headwind.sh/auto-rollback: "true"` to automatically detect and rollback failed updates
+- **Update history**: View the last 10 updates per container in deployment annotations
+- You can also use `kubectl rollout undo` for immediate rollbacks
 
 **Q: Can I test updates in staging first?**
 

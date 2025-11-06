@@ -83,4 +83,9 @@ pub mod annotations {
     pub const IMAGES: &str = "headwind.sh/images";
     #[allow(dead_code)]
     pub const LAST_UPDATE: &str = "headwind.sh/last-update";
+
+    // Automatic rollback annotations
+    pub const AUTO_ROLLBACK: &str = "headwind.sh/auto-rollback";
+    pub const ROLLBACK_TIMEOUT: &str = "headwind.sh/rollback-timeout";
+    pub const HEALTH_CHECK_RETRIES: &str = "headwind.sh/health-check-retries";
 }

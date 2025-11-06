@@ -89,6 +89,37 @@ lazy_static! {
         "headwind_polling_new_tags_found_total",
         "Total number of new tags discovered via polling"
     ).unwrap();
+
+    // Rollback metrics
+    pub static ref ROLLBACKS_TOTAL: IntCounter = IntCounter::new(
+        "headwind_rollbacks_total",
+        "Total number of rollback operations performed"
+    ).unwrap();
+
+    pub static ref ROLLBACKS_MANUAL: IntCounter = IntCounter::new(
+        "headwind_rollbacks_manual_total",
+        "Total number of manual rollback operations"
+    ).unwrap();
+
+    pub static ref ROLLBACKS_AUTOMATIC: IntCounter = IntCounter::new(
+        "headwind_rollbacks_automatic_total",
+        "Total number of automatic rollback operations"
+    ).unwrap();
+
+    pub static ref ROLLBACKS_FAILED: IntCounter = IntCounter::new(
+        "headwind_rollbacks_failed_total",
+        "Total number of failed rollback operations"
+    ).unwrap();
+
+    pub static ref DEPLOYMENT_HEALTH_CHECKS: IntCounter = IntCounter::new(
+        "headwind_deployment_health_checks_total",
+        "Total number of deployment health checks performed"
+    ).unwrap();
+
+    pub static ref DEPLOYMENT_HEALTH_FAILURES: IntCounter = IntCounter::new(
+        "headwind_deployment_health_failures_total",
+        "Total number of deployment health check failures detected"
+    ).unwrap();
 }
 
 pub fn register_metrics() {
@@ -122,6 +153,18 @@ pub fn register_metrics() {
         .ok();
     REGISTRY
         .register(Box::new(POLLING_NEW_TAGS_FOUND.clone()))
+        .ok();
+    REGISTRY.register(Box::new(ROLLBACKS_TOTAL.clone())).ok();
+    REGISTRY.register(Box::new(ROLLBACKS_MANUAL.clone())).ok();
+    REGISTRY
+        .register(Box::new(ROLLBACKS_AUTOMATIC.clone()))
+        .ok();
+    REGISTRY.register(Box::new(ROLLBACKS_FAILED.clone())).ok();
+    REGISTRY
+        .register(Box::new(DEPLOYMENT_HEALTH_CHECKS.clone()))
+        .ok();
+    REGISTRY
+        .register(Box::new(DEPLOYMENT_HEALTH_FAILURES.clone()))
         .ok();
 
     info!("Metrics registered");

@@ -70,6 +70,7 @@ pub fn headwind_annotations(
 }
 
 /// Creates a Docker Hub webhook payload
+#[allow(dead_code)]
 pub fn create_dockerhub_webhook_payload(repo: &str, tag: &str) -> serde_json::Value {
     // Parse repo into namespace and name
     let parts: Vec<&str> = repo.split('/').collect();
@@ -92,6 +93,7 @@ pub fn create_dockerhub_webhook_payload(repo: &str, tag: &str) -> serde_json::Va
 }
 
 /// Creates an OCI registry webhook payload
+#[allow(dead_code)]
 pub fn create_registry_webhook_payload(image: &str, tag: &str) -> serde_json::Value {
     serde_json::json!({
         "events": [{
