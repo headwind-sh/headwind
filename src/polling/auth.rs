@@ -268,7 +268,8 @@ fn registry_matches(key: &str, target: &str) -> bool {
     if target == "docker.io" {
         return key_clean == "index.docker.io"
             || key_clean == "registry-1.docker.io"
-            || key_clean == "https://index.docker.io/v1/";
+            || key_clean == "index.docker.io/v1/"
+            || key_clean == "registry-1.docker.io/v1/";
     }
 
     false
@@ -294,6 +295,8 @@ mod tests {
         assert!(registry_matches("https://docker.io", "docker.io"));
         assert!(registry_matches("index.docker.io", "docker.io"));
         assert!(registry_matches("registry-1.docker.io", "docker.io"));
+        assert!(registry_matches("https://index.docker.io/v1/", "docker.io"));
+        assert!(registry_matches("https://registry-1.docker.io/v1/", "docker.io"));
         assert!(registry_matches("gcr.io", "gcr.io"));
         assert!(registry_matches("https://gcr.io", "gcr.io"));
 
