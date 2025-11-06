@@ -1,0 +1,153 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: updaterequests.headwind.sh
+spec:
+  group: headwind.sh
+  names:
+    kind: UpdateRequest
+    listKind: UpdateRequestList
+    plural: updaterequests
+    singular: updaterequest
+    shortNames:
+      - ur
+      - upd
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required:
+                - targetRef
+                - updateType
+                - currentImage
+                - newImage
+                - policy
+              properties:
+                targetRef:
+                  type: object
+                  description: Reference to the resource to update
+                  required:
+                    - apiVersion
+                    - kind
+                    - name
+                    - namespace
+                  properties:
+                    apiVersion:
+                      type: string
+                      description: API version of the target resource
+                    kind:
+                      type: string
+                      description: Kind of the target resource (e.g., Deployment, StatefulSet)
+                    name:
+                      type: string
+                      description: Name of the target resource
+                    namespace:
+                      type: string
+                      description: Namespace of the target resource
+                updateType:
+                  type: string
+                  description: Type of update
+                  enum:
+                    - image
+                    - helmChart
+                containerName:
+                  type: string
+                  description: Name of the container to update (for image updates)
+                currentImage:
+                  type: string
+                  description: Current image or chart version
+                newImage:
+                  type: string
+                  description: New image or chart version
+                policy:
+                  type: string
+                  description: Policy that triggered this update
+                  enum:
+                    - major
+                    - minor
+                    - patch
+                    - glob
+                    - none
+                reason:
+                  type: string
+                  description: Human-readable reason for the update
+                requireApproval:
+                  type: boolean
+                  description: Whether this update requires manual approval
+                  default: true
+                expiresAt:
+                  type: string
+                  format: date-time
+                  description: Optional expiration time for this update request
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  description: Current phase of the update request
+                  enum:
+                    - Pending
+                    - Approved
+                    - Rejected
+                    - Completed
+                    - Failed
+                    - Expired
+                  default: Pending
+                approvedBy:
+                  type: string
+                  description: User or system that approved the update
+                approvedAt:
+                  type: string
+                  format: date-time
+                  description: When the update was approved
+                rejectedBy:
+                  type: string
+                  description: User or system that rejected the update
+                rejectedAt:
+                  type: string
+                  format: date-time
+                  description: When the update was rejected
+                message:
+                  type: string
+                  description: Status message
+                lastUpdated:
+                  type: string
+                  format: date-time
+                  description: Last time this status was updated
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Target
+          type: string
+          jsonPath: .spec.targetRef.name
+          description: Target resource name
+        - name: Container
+          type: string
+          jsonPath: .spec.containerName
+          description: Container name
+        - name: Current
+          type: string
+          jsonPath: .spec.currentImage
+          description: Current image
+        - name: New
+          type: string
+          jsonPath: .spec.newImage
+          description: New image
+        - name: Policy
+          type: string
+          jsonPath: .spec.policy
+          description: Update policy
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+          description: Current phase
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp

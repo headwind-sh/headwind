@@ -1,0 +1,55 @@
+apiVersion: headwind.sh/v1alpha1
+kind: UpdateRequest
+metadata:
+  name: nginx-update-1-26-0
+  namespace: default
+spec:
+  # Reference to the target Deployment
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: nginx-example
+    namespace: default
+
+  # Update details
+  updateType: image
+  containerName: nginx
+  currentImage: nginx:1.25.0
+  newImage: nginx:1.26.0
+
+  # Policy that triggered this update
+  policy: minor
+  reason: "New minor version available: 1.25.0 -> 1.26.0"
+
+  # Requires manual approval
+  requireApproval: true
+---
+apiVersion: headwind.sh/v1alpha1
+kind: UpdateRequest
+metadata:
+  name: redis-patch-update
+  namespace: default
+spec:
+  # Reference to the target Deployment
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: redis-example
+    namespace: default
+
+  # Update details
+  updateType: image
+  containerName: redis
+  currentImage: redis:7.2.0
+  newImage: redis:7.2.1
+
+  # Policy that triggered this update
+  policy: patch
+  reason: "Patch update available: 7.2.0 -> 7.2.1"
+
+  # Auto-update without approval
+  requireApproval: false
+status:
+  phase: Completed
+  message: "Update applied successfully"
+  lastUpdated: "2024-01-15T10:00:00Z"

@@ -37,6 +37,7 @@ kind load docker-image headwind:latest  # or minikube image load headwind:latest
 
 # Apply all Kubernetes manifests
 kubectl apply -f deploy/k8s/namespace.yaml
+kubectl apply -f deploy/k8s/crds/updaterequest.yaml
 kubectl apply -f deploy/k8s/rbac.yaml
 kubectl apply -f deploy/k8s/deployment.yaml
 kubectl apply -f deploy/k8s/service.yaml

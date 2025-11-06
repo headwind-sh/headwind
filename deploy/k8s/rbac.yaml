@@ -18,6 +18,12 @@ rules:
 - apiGroups: ["helm.toolkit.fluxcd.io"]
   resources: ["helmreleases"]
   verbs: ["get", "list", "watch", "update", "patch"]
+- apiGroups: ["headwind.sh"]
+  resources: ["updaterequests"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["headwind.sh"]
+  resources: ["updaterequests/status"]
+  verbs: ["get", "update", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
