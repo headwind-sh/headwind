@@ -28,9 +28,9 @@ pub async fn start_approval_server() -> Result<JoinHandle<()>> {
 
     let app = Router::new()
         .route("/api/v1/updates", get(list_updates))
-        .route("/api/v1/updates/:id", get(get_update))
-        .route("/api/v1/updates/:id/approve", post(approve_update))
-        .route("/api/v1/updates/:id/reject", post(reject_update))
+        .route("/api/v1/updates/{id}", get(get_update))
+        .route("/api/v1/updates/{id}/approve", post(approve_update))
+        .route("/api/v1/updates/{id}/reject", post(reject_update))
         .route("/health", get(health_check))
         .layer(TraceLayer::new_for_http())
         .with_state(state);

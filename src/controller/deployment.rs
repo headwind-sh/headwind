@@ -36,8 +36,10 @@ impl DeploymentController {
     }
 
     pub async fn run(self) {
+        info!("Deployment controller starting...");
         let deployments: Api<Deployment> = Api::all(self.client.clone());
 
+        info!("Creating controller for deployments");
         Controller::new(deployments, Config::default())
             .run(
                 reconcile,
