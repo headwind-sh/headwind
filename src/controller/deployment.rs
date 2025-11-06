@@ -4,6 +4,7 @@ use crate::models::{
     UpdateType, annotations,
 };
 use crate::policy::PolicyEngine;
+use crate::rollback::RollbackManager;
 use anyhow::Result;
 use chrono::Utc;
 use futures::StreamExt;
@@ -20,7 +21,7 @@ use kube::{
 use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, error, info, instrument, warn};
 
 pub struct DeploymentController {
     client: Client,
@@ -442,7 +443,29 @@ pub async fn update_deployment_image(
     container_name: &str,
     new_image: &str,
 ) -> Result<()> {
-    let deployments: Api<Deployment> = Api::namespaced(client, namespace);
+    update_deployment_image_with_tracking(
+        client,
+        namespace,
+        name,
+        container_name,
+        new_image,
+        None,
+        None,
+    )
+    .await
+}
+
+/// Update a deployment image with optional rollback tracking metadata
+pub async fn update_deployment_image_with_tracking(
+    client: Client,
+    namespace: &str,
+    name: &str,
+    container_name: &str,
+    new_image: &str,
+    update_request_name: Option<String>,
+    approved_by: Option<String>,
+) -> Result<()> {
+    let deployments: Api<Deployment> = Api::namespaced(client.clone(), namespace);
 
     let patch = json!({
         "spec": {
@@ -467,6 +490,26 @@ pub async fn update_deployment_image(
         .await?;
 
     info!("Successfully updated deployment {}/{}", namespace, name);
+
+    // Track the update in rollback history
+    let rollback_manager = RollbackManager::new(client);
+    if let Err(e) = rollback_manager
+        .track_update(
+            name,
+            namespace,
+            container_name,
+            new_image,
+            update_request_name,
+            approved_by,
+        )
+        .await
+    {
+        // Log the error but don't fail the update
+        warn!(
+            "Failed to track update in rollback history for {}/{}: {}",
+            namespace, name, e
+        );
+    }
 
     Ok(())
 }

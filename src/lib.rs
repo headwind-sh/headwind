@@ -9,6 +9,7 @@ pub mod metrics;
 pub mod models;
 pub mod policy;
 pub mod polling;
+pub mod rollback;
 pub mod webhook;
 
 // Re-export commonly used types for testing
