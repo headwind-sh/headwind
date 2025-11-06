@@ -212,15 +212,20 @@ fn parse_image(image: &str) -> Result<(String, String), kube::Error> {
 
 /// Handle an available image update
 /// This is called when we detect a new image version is available
-#[allow(dead_code)]
-async fn handle_image_update(
-    ctx: Arc<ControllerContext>,
+pub async fn handle_image_update(
+    client: Client,
+    policy_engine: Arc<PolicyEngine>,
     deployment: &Deployment,
     policy: &ResourcePolicy,
     container_name: &str,
     current_image: &str,
     new_image: &str,
 ) -> Result<(), kube::Error> {
+    // Create a temporary context for this operation
+    let ctx = Arc::new(ControllerContext {
+        client,
+        policy_engine,
+    });
     let namespace = deployment.namespace().unwrap();
     let name = deployment.name_any();
 

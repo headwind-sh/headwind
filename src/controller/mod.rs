@@ -4,7 +4,7 @@ use anyhow::Result;
 use tokio::task::JoinHandle;
 use tracing::info;
 
-pub use deployment::DeploymentController;
+pub use deployment::{DeploymentController, handle_image_update};
 
 pub async fn start_controllers() -> Result<JoinHandle<()>> {
     info!("Starting Kubernetes controllers");
