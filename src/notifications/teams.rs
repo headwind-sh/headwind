@@ -1,5 +1,5 @@
 use super::{NotificationPayload, Notifier, TeamsConfig};
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use reqwest::Client;
 use serde_json::json;
 use std::time::Duration;
@@ -229,11 +229,10 @@ mod tests {
             container: None,
         };
 
-        let payload =
-            NotificationPayload::new(NotificationEvent::UpdateRequestCreated, deployment)
-                .with_policy("minor")
-                .with_requires_approval(true)
-                .with_approval_url("https://headwind.example.com/approve");
+        let payload = NotificationPayload::new(NotificationEvent::UpdateRequestCreated, deployment)
+            .with_policy("minor")
+            .with_requires_approval(true)
+            .with_approval_url("https://headwind.example.com/approve");
 
         let card = notifier.build_adaptive_card(&payload);
 

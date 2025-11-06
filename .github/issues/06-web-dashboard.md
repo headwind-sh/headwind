@@ -9,9 +9,12 @@ Create a web-based dashboard for viewing pending updates and approving/rejecting
 ## Current State
 
 - ✅ Approval API exists with full CRUD operations
-- ❌ No web interface
+- ✅ Slack notifications send approval URLs with buttons
+- ❌ No web interface (Slack buttons currently just link to API endpoints)
 - ❌ No visualization of pending updates
 - ❌ No authentication/authorization
+
+**Note**: Slack Incoming Webhooks don't support interactive components. The approval buttons in Slack notifications currently link to the approval API endpoints but need a web UI to properly handle the approve/reject actions in a browser.
 
 ## What Needs to Be Done
 
@@ -146,7 +149,8 @@ async fn require_auth(
 
 - [ ] Web dashboard accessible at approval server root
 - [ ] Shows all pending updates
-- [ ] Approve/reject buttons work
+- [ ] Approve/reject buttons work (integrates with existing approval API)
+- [ ] Supports direct links from Slack notification buttons
 - [ ] Real-time updates via SSE or polling
 - [ ] Basic authentication implemented
 - [ ] Responsive design (mobile-friendly)
@@ -154,6 +158,13 @@ async fn require_auth(
 - [ ] Displays metrics/statistics
 - [ ] Links to Kubernetes resources
 - [ ] Documentation for accessing dashboard
+
+### Slack Integration Requirements
+
+- [ ] Approval button URLs from Slack (`/api/v1/updates/{namespace}/{name}/approve`) redirect to approval page
+- [ ] View Details button URLs from Slack (`/api/v1/updates/{namespace}/{name}`) show update details page
+- [ ] Approval page shows update info with approve/reject form
+- [ ] After approval/rejection, show confirmation page and optionally redirect back to list
 
 ## UI Mockup Features
 

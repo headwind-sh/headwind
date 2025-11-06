@@ -1,3 +1,4 @@
+use crate::metrics;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use lazy_static::lazy_static;
@@ -5,7 +6,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use tracing::{error, info};
-use crate::metrics;
 
 mod slack;
 mod teams;
@@ -70,15 +70,15 @@ impl NotificationEvent {
 
     pub fn color(&self) -> &'static str {
         match self {
-            Self::UpdateDetected => "#2196F3",      // Blue
+            Self::UpdateDetected => "#2196F3",       // Blue
             Self::UpdateRequestCreated => "#9C27B0", // Purple
-            Self::UpdateApproved => "#4CAF50",      // Green
-            Self::UpdateRejected => "#F44336",      // Red
-            Self::UpdateCompleted => "#4CAF50",     // Green
-            Self::UpdateFailed => "#FF9800",        // Orange
-            Self::RollbackTriggered => "#FF9800",   // Orange
-            Self::RollbackCompleted => "#4CAF50",   // Green
-            Self::RollbackFailed => "#F44336",      // Red
+            Self::UpdateApproved => "#4CAF50",       // Green
+            Self::UpdateRejected => "#F44336",       // Red
+            Self::UpdateCompleted => "#4CAF50",      // Green
+            Self::UpdateFailed => "#FF9800",         // Orange
+            Self::RollbackTriggered => "#FF9800",    // Orange
+            Self::RollbackCompleted => "#4CAF50",    // Green
+            Self::RollbackFailed => "#F44336",       // Red
         }
     }
 }
@@ -177,10 +177,102 @@ impl NotificationConfig {
         }
     }
 
+    /// Load configuration from a Kubernetes ConfigMap
+    /// Falls back to environment variables for any missing values
+    pub async fn from_configmap(client: kube::Client, name: &str, namespace: &str) -> Result<Self> {
+        use k8s_openapi::api::core::v1::ConfigMap;
+        use kube::Api;
+
+        let config_maps: Api<ConfigMap> = Api::namespaced(client, namespace);
+
+        match config_maps.get(name).await {
+            Ok(configmap) => {
+                let data = configmap.data.unwrap_or_default();
+
+                // Parse YAML configuration from ConfigMap
+                if let Some(config_yaml) = data.get("notifications.yaml") {
+                    match serde_yaml::from_str::<ConfigMapNotificationConfig>(config_yaml) {
+                        Ok(cm_config) => {
+                            info!(
+                                "Loaded notification configuration from ConfigMap {}/{}",
+                                namespace, name
+                            );
+                            return Ok(Self::from_configmap_config(cm_config));
+                        },
+                        Err(e) => {
+                            error!(
+                                "Failed to parse notifications.yaml from ConfigMap: {}. Falling back to environment variables.",
+                                e
+                            );
+                        },
+                    }
+                }
+
+                // Fall back to loading individual keys from ConfigMap data
+                info!(
+                    "ConfigMap {}/{} found but no notifications.yaml key. Falling back to environment variables.",
+                    namespace, name
+                );
+                Ok(Self::from_env())
+            },
+            Err(e) => {
+                info!(
+                    "ConfigMap {}/{} not found: {}. Using environment variables.",
+                    namespace, name, e
+                );
+                Ok(Self::from_env())
+            },
+        }
+    }
+
+    /// Convert ConfigMap config to NotificationConfig
+    fn from_configmap_config(cm_config: ConfigMapNotificationConfig) -> Self {
+        Self {
+            slack: SlackConfig::from_configmap_config(cm_config.slack),
+            teams: TeamsConfig::from_configmap_config(cm_config.teams),
+            webhook: WebhookConfig::from_configmap_config(cm_config.webhook),
+        }
+    }
+
     /// Check if any notification channels are enabled
     pub fn has_enabled_channels(&self) -> bool {
         self.slack.enabled || self.teams.enabled || self.webhook.enabled
     }
+}
+
+/// Configuration structure for deserializing from ConfigMap YAML
+#[derive(Debug, Clone, Deserialize)]
+struct ConfigMapNotificationConfig {
+    #[serde(default)]
+    slack: Option<ConfigMapSlackConfig>,
+    #[serde(default)]
+    teams: Option<ConfigMapTeamsConfig>,
+    #[serde(default)]
+    webhook: Option<ConfigMapWebhookConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct ConfigMapSlackConfig {
+    enabled: Option<bool>,
+    webhook_url: Option<String>,
+    channel: Option<String>,
+    username: Option<String>,
+    icon_emoji: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct ConfigMapTeamsConfig {
+    enabled: Option<bool>,
+    webhook_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct ConfigMapWebhookConfig {
+    enabled: Option<bool>,
+    url: Option<String>,
+    secret: Option<String>,
+    timeout_seconds: Option<u64>,
+    max_retries: Option<u32>,
 }
 
 impl SlackConfig {
@@ -197,6 +289,30 @@ impl SlackConfig {
             icon_emoji: std::env::var("SLACK_ICON_EMOJI").ok(),
         }
     }
+
+    /// Load Slack configuration from ConfigMap, falling back to environment variables
+    fn from_configmap_config(cm_config: Option<ConfigMapSlackConfig>) -> Self {
+        if let Some(cm) = cm_config {
+            Self {
+                enabled: cm.enabled.unwrap_or_else(|| {
+                    std::env::var("SLACK_ENABLED")
+                        .unwrap_or_default()
+                        .parse()
+                        .unwrap_or(false)
+                }),
+                webhook_url: cm
+                    .webhook_url
+                    .or_else(|| std::env::var("SLACK_WEBHOOK_URL").ok()),
+                channel: cm.channel.or_else(|| std::env::var("SLACK_CHANNEL").ok()),
+                username: cm.username.or_else(|| std::env::var("SLACK_USERNAME").ok()),
+                icon_emoji: cm
+                    .icon_emoji
+                    .or_else(|| std::env::var("SLACK_ICON_EMOJI").ok()),
+            }
+        } else {
+            Self::from_env()
+        }
+    }
 }
 
 impl TeamsConfig {
@@ -208,6 +324,25 @@ impl TeamsConfig {
                 .parse()
                 .unwrap_or(false),
             webhook_url: std::env::var("TEAMS_WEBHOOK_URL").ok(),
+        }
+    }
+
+    /// Load Teams configuration from ConfigMap, falling back to environment variables
+    fn from_configmap_config(cm_config: Option<ConfigMapTeamsConfig>) -> Self {
+        if let Some(cm) = cm_config {
+            Self {
+                enabled: cm.enabled.unwrap_or_else(|| {
+                    std::env::var("TEAMS_ENABLED")
+                        .unwrap_or_default()
+                        .parse()
+                        .unwrap_or(false)
+                }),
+                webhook_url: cm
+                    .webhook_url
+                    .or_else(|| std::env::var("TEAMS_WEBHOOK_URL").ok()),
+            }
+        } else {
+            Self::from_env()
         }
     }
 }
@@ -230,6 +365,36 @@ impl WebhookConfig {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(3),
+        }
+    }
+
+    /// Load webhook configuration from ConfigMap, falling back to environment variables
+    fn from_configmap_config(cm_config: Option<ConfigMapWebhookConfig>) -> Self {
+        if let Some(cm) = cm_config {
+            Self {
+                enabled: cm.enabled.unwrap_or_else(|| {
+                    std::env::var("WEBHOOK_ENABLED")
+                        .unwrap_or_default()
+                        .parse()
+                        .unwrap_or(false)
+                }),
+                url: cm.url.or_else(|| std::env::var("WEBHOOK_URL").ok()),
+                secret: cm.secret.or_else(|| std::env::var("WEBHOOK_SECRET").ok()),
+                timeout_seconds: cm.timeout_seconds.unwrap_or_else(|| {
+                    std::env::var("WEBHOOK_TIMEOUT")
+                        .ok()
+                        .and_then(|v| v.parse().ok())
+                        .unwrap_or(10)
+                }),
+                max_retries: cm.max_retries.unwrap_or_else(|| {
+                    std::env::var("WEBHOOK_MAX_RETRIES")
+                        .ok()
+                        .and_then(|v| v.parse().ok())
+                        .unwrap_or(3)
+                }),
+            }
+        } else {
+            Self::from_env()
         }
     }
 }
@@ -311,17 +476,13 @@ impl NotificationManager {
                         "Slack" => metrics::NOTIFICATIONS_SLACK_SENT.inc(),
                         "Microsoft Teams" => metrics::NOTIFICATIONS_TEAMS_SENT.inc(),
                         "Webhook" => metrics::NOTIFICATIONS_WEBHOOK_SENT.inc(),
-                        _ => {}
+                        _ => {},
                     }
-                }
+                },
                 Err(e) => {
-                    error!(
-                        "Failed to send notification via {}: {}",
-                        notifier.name(),
-                        e
-                    );
+                    error!("Failed to send notification via {}: {}", notifier.name(), e);
                     metrics::NOTIFICATIONS_FAILED_TOTAL.inc();
-                }
+                },
             }
         }
     }
@@ -402,55 +563,55 @@ impl NotificationPayload {
                     "New version detected: {}/{}",
                     self.deployment.namespace, self.deployment.name
                 )
-            }
+            },
             NotificationEvent::UpdateRequestCreated => {
                 format!(
                     "Update request created: {}/{}",
                     self.deployment.namespace, self.deployment.name
                 )
-            }
+            },
             NotificationEvent::UpdateApproved => {
                 format!(
                     "Update approved: {}/{}",
                     self.deployment.namespace, self.deployment.name
                 )
-            }
+            },
             NotificationEvent::UpdateRejected => {
                 format!(
                     "Update rejected: {}/{}",
                     self.deployment.namespace, self.deployment.name
                 )
-            }
+            },
             NotificationEvent::UpdateCompleted => {
                 format!(
                     "Update completed: {}/{}",
                     self.deployment.namespace, self.deployment.name
                 )
-            }
+            },
             NotificationEvent::UpdateFailed => {
                 format!(
                     "Update failed: {}/{}",
                     self.deployment.namespace, self.deployment.name
                 )
-            }
+            },
             NotificationEvent::RollbackTriggered => {
                 format!(
                     "Rollback triggered: {}/{}",
                     self.deployment.namespace, self.deployment.name
                 )
-            }
+            },
             NotificationEvent::RollbackCompleted => {
                 format!(
                     "Rollback completed: {}/{}",
                     self.deployment.namespace, self.deployment.name
                 )
-            }
+            },
             NotificationEvent::RollbackFailed => {
                 format!(
                     "Rollback failed: {}/{}",
                     self.deployment.namespace, self.deployment.name
                 )
-            }
+            },
         }
     }
 
@@ -521,10 +682,28 @@ pub fn notify_update_request_created(
     requires_approval: bool,
     update_request_name: String,
 ) {
-    let payload = NotificationPayload::new(NotificationEvent::UpdateRequestCreated, deployment)
-        .with_policy(policy)
-        .with_requires_approval(requires_approval)
-        .with_update_request(update_request_name);
+    let mut payload =
+        NotificationPayload::new(NotificationEvent::UpdateRequestCreated, deployment.clone())
+            .with_policy(policy)
+            .with_requires_approval(requires_approval)
+            .with_update_request(update_request_name);
+
+    // Add approval URL if requires_approval is true
+    if requires_approval {
+        // Use environment variable or default to localhost for testing
+        let base_url = std::env::var("HEADWIND_API_URL")
+            .unwrap_or_else(|_| "http://localhost:8081".to_string());
+        let approval_url = format!(
+            "{}/api/v1/updates/{}/{}/approve",
+            base_url,
+            deployment.namespace,
+            payload
+                .update_request_name
+                .as_ref()
+                .unwrap_or(&"unknown".to_string())
+        );
+        payload = payload.with_approval_url(approval_url);
+    }
 
     notify(payload);
 }
@@ -572,8 +751,8 @@ pub fn notify_update_failed(deployment: DeploymentInfo, error: String) {
 
 /// Helper function to send rollback triggered notification
 pub fn notify_rollback_triggered(deployment: DeploymentInfo, reason: String) {
-    let payload =
-        NotificationPayload::new(NotificationEvent::RollbackTriggered, deployment).with_error(reason);
+    let payload = NotificationPayload::new(NotificationEvent::RollbackTriggered, deployment)
+        .with_error(reason);
     notify(payload);
 }
 

@@ -1,5 +1,5 @@
 use super::{NotificationPayload, Notifier, WebhookConfig};
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use reqwest::Client;
 use sha2::{Digest, Sha256};
 use std::time::Duration;
@@ -62,7 +62,10 @@ impl WebhookNotifier {
                 backoff_ms *= 2; // Exponential backoff
             }
 
-            let mut request = self.client.post(url).header("Content-Type", "application/json");
+            let mut request = self
+                .client
+                .post(url)
+                .header("Content-Type", "application/json");
 
             // Add signature if secret is configured
             if let Some(signature) = self.generate_signature(&body) {
@@ -88,11 +91,11 @@ impl WebhookNotifier {
                                 .unwrap_or_else(|_| "Unable to read response".to_string())
                         );
                     }
-                }
+                },
                 Err(e) => {
                     last_error = Some(anyhow!("HTTP request failed: {}", e));
                     warn!("Failed to send webhook notification: {}", e);
-                }
+                },
             }
         }
 

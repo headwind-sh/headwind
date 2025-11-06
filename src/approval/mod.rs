@@ -166,7 +166,10 @@ async fn approve_update(
     // Send approval notification
     notifications::notify_update_approved(
         deployment_info.clone(),
-        approval.approver.clone().unwrap_or_else(|| "unknown".to_string()),
+        approval
+            .approver
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string()),
         name.clone(),
     );
 
@@ -288,8 +291,14 @@ async fn reject_update(
     // Send rejection notification
     notifications::notify_update_rejected(
         deployment_info,
-        approval.approver.clone().unwrap_or_else(|| "unknown".to_string()),
-        approval.reason.clone().unwrap_or_else(|| "No reason provided".to_string()),
+        approval
+            .approver
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string()),
+        approval
+            .reason
+            .clone()
+            .unwrap_or_else(|| "No reason provided".to_string()),
         name.clone(),
     );
 

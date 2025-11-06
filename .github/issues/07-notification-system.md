@@ -222,42 +222,85 @@ pub fn load_config() -> Result<NotificationConfig> {
 
 ## Acceptance Criteria
 
-- [ ] Slack notifications working
-- [ ] Teams notifications working
-- [ ] Generic webhook notifications working
-- [ ] Configuration via ConfigMap
-- [ ] Environment variable overrides
-- [ ] Notification on all event types
-- [ ] Rich formatting (colors, emojis, fields)
-- [ ] Error handling and retries
-- [ ] Metrics for notification success/failure
-- [ ] Documentation for setup
-- [ ] Example configurations
+- [x] Slack notifications working (tested)
+- [ ] Teams notifications working (needs testing - no Teams account available)
+- [x] Generic webhook notifications working (tested)
+- [x] Configuration via environment variables
+- [x] Configuration via ConfigMap (implemented with fallback to environment variables)
+- [x] Notification on all event types
+- [x] Rich formatting (colors, emojis, fields)
+- [x] Error handling and retries
+- [x] Metrics for notification success/failure
+- [ ] Documentation for setup (in progress)
+- [x] Example configurations
 
-## Configuration Example
+## Configuration Examples
+
+### Option 1: ConfigMap (Recommended for Kubernetes)
 
 ```yaml
-# deploy/k8s/configmap.yaml
+# deploy/k8s/notification-configmap.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: headwind-notifications
   namespace: headwind-system
 data:
-  slack_webhook_url: "https://hooks.slack.com/services/..."
-  slack_channel: "#kubernetes-updates"
-  teams_webhook_url: ""
-  webhook_url: "https://example.com/webhook"
+  notifications.yaml: |
+    slack:
+      enabled: true
+      webhook_url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+      channel: "#kubernetes-updates"
+      username: "Headwind Bot"
+      icon_emoji: ":robot_face:"
+
+    teams:
+      enabled: false
+      webhook_url: "https://outlook.office.com/webhook/YOUR/WEBHOOK/URL"
+
+    webhook:
+      enabled: true
+      url: "https://your-webhook-receiver.example.com/headwind"
+      secret: "your-webhook-secret"
+      timeout_seconds: 10
+      max_retries: 3
 ```
+
+To use ConfigMap configuration, call `NotificationConfig::from_configmap()` in your code:
+
+```rust
+// Load from ConfigMap with fallback to environment variables
+let client = kube::Client::try_default().await?;
+let config = NotificationConfig::from_configmap(
+    client,
+    "headwind-notifications",
+    "headwind-system"
+).await?;
+```
+
+### Option 2: Environment Variables
 
 ```yaml
 # deploy/k8s/deployment.yaml
 env:
+- name: SLACK_ENABLED
+  value: "true"
 - name: SLACK_WEBHOOK_URL
-  valueFrom:
-    configMapKeyRef:
-      name: headwind-notifications
-      key: slack_webhook_url
+  value: "https://hooks.slack.com/services/..."
+- name: SLACK_CHANNEL
+  value: "#kubernetes-updates"
+- name: WEBHOOK_ENABLED
+  value: "true"
+- name: WEBHOOK_URL
+  value: "https://example.com/webhook"
+- name: WEBHOOK_SECRET
+  value: "your-secret"
+```
+
+To use environment variable configuration:
+
+```rust
+let config = NotificationConfig::from_env();
 ```
 
 ## Testing

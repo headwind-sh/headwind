@@ -1,5 +1,5 @@
 use super::{NotificationPayload, Notifier, SlackConfig};
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use reqwest::Client;
 use serde_json::json;
 use std::time::Duration;
@@ -160,10 +160,9 @@ impl SlackNotifier {
             }]
         });
 
-        // Add channel if configured
-        if let Some(channel) = &self.config.channel {
-            message["channel"] = json!(channel);
-        }
+        // Note: For Incoming Webhooks, the channel is pre-configured in the webhook URL
+        // and cannot be overridden in the payload. The channel config is ignored for
+        // Incoming Webhooks but may be used in the future for other Slack integration methods.
 
         // Add username if configured
         if let Some(username) = &self.config.username {
@@ -194,13 +193,37 @@ impl Notifier for SlackNotifier {
 
         let message = self.build_message(payload);
 
+        debug!("Sending Slack notification to: {}", webhook_url);
+        debug!("Webhook URL length: {} chars", webhook_url.len());
+        debug!("Webhook URL bytes: {:?}", webhook_url.as_bytes());
+        debug!(
+            "Message payload: {}",
+            serde_json::to_string_pretty(&message).unwrap_or_default()
+        );
+
+        // Try to serialize the message to catch any serialization issues early
+        let json_str =
+            serde_json::to_string(&message).context("Failed to serialize message to JSON")?;
+        debug!("Serialized JSON length: {} bytes", json_str.len());
+
         let response = self
             .client
             .post(webhook_url)
-            .json(&message)
+            .header("Content-Type", "application/json")
+            .body(json_str)
             .send()
             .await
-            .context("Failed to send Slack notification")?;
+            .map_err(|e| {
+                let error_msg = format!("Failed to send Slack notification: {} | is_timeout: {} | is_connect: {} | is_body: {} | is_decode: {} | is_request: {}",
+                    e,
+                    e.is_timeout(),
+                    e.is_connect(),
+                    e.is_body(),
+                    e.is_decode(),
+                    e.is_request()
+                );
+                anyhow!(error_msg)
+            })?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -208,11 +231,7 @@ impl Notifier for SlackNotifier {
                 .text()
                 .await
                 .unwrap_or_else(|_| "Unable to read response".to_string());
-            return Err(anyhow!(
-                "Slack API returned error {}: {}",
-                status,
-                body
-            ));
+            return Err(anyhow!("Slack API returned error {}: {}", status, body));
         }
 
         debug!("Slack notification sent successfully");
@@ -296,11 +315,10 @@ mod tests {
             container: None,
         };
 
-        let payload =
-            NotificationPayload::new(NotificationEvent::UpdateRequestCreated, deployment)
-                .with_policy("minor")
-                .with_requires_approval(true)
-                .with_approval_url("https://headwind.example.com/approve");
+        let payload = NotificationPayload::new(NotificationEvent::UpdateRequestCreated, deployment)
+            .with_policy("minor")
+            .with_requires_approval(true)
+            .with_approval_url("https://headwind.example.com/approve");
 
         let message = notifier.build_message(&payload);
 
