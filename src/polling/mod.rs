@@ -1,11 +1,11 @@
 use crate::metrics::{POLLING_CYCLES_TOTAL, POLLING_IMAGES_CHECKED, POLLING_NEW_TAGS_FOUND};
-use crate::models::policy::{annotations, ResourcePolicy, UpdatePolicy};
+use crate::models::policy::{ResourcePolicy, UpdatePolicy, annotations};
 use crate::models::webhook::ImagePushEvent;
 use crate::policy::PolicyEngine;
 use anyhow::Result;
 use k8s_openapi::api::apps::v1::Deployment;
 use kube::{Api, Client};
-use oci_distribution::{secrets::RegistryAuth, Client as OciClient, Reference};
+use oci_distribution::{Client as OciClient, Reference, secrets::RegistryAuth};
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -151,7 +151,10 @@ impl RegistryPoller {
 
             debug!(
                 "Processing deployment {}/{} with policy {:?}",
-                metadata.namespace.as_ref().unwrap_or(&"default".to_string()),
+                metadata
+                    .namespace
+                    .as_ref()
+                    .unwrap_or(&"default".to_string()),
                 metadata.name.as_ref().unwrap_or(&"unknown".to_string()),
                 policy
             );
@@ -207,7 +210,12 @@ impl RegistryPoller {
             },
         };
 
-        debug!("Current digest for {}:{}: {}", image, current_tag, &current_digest[..16]);
+        debug!(
+            "Current digest for {}:{}: {}",
+            image,
+            current_tag,
+            &current_digest[..16]
+        );
 
         // Check cache
         let cache = self.cache.read().await;
@@ -220,7 +228,10 @@ impl RegistryPoller {
             if cached.digest != current_digest {
                 info!(
                     "Digest change detected for {}:{} - {} -> {}",
-                    image, current_tag, &cached.digest[..12], &current_digest[..12]
+                    image,
+                    current_tag,
+                    &cached.digest[..12],
+                    &current_digest[..12]
                 );
 
                 // Update cache
@@ -254,10 +265,16 @@ impl RegistryPoller {
         }
 
         // Step 2: Check for new tags (if policy allows)
-        if image_info.policy != UpdatePolicy::None && image_info.policy != UpdatePolicy::Force
-            && let Some(new_tag) = self.check_for_new_tags(&client, &reference, image_info).await?
+        if image_info.policy != UpdatePolicy::None
+            && image_info.policy != UpdatePolicy::Force
+            && let Some(new_tag) = self
+                .check_for_new_tags(&client, &reference, image_info)
+                .await?
         {
-            info!("New tag discovered for {}: {} -> {}", image, current_tag, new_tag);
+            info!(
+                "New tag discovered for {}: {} -> {}",
+                image, current_tag, new_tag
+            );
 
             // Fetch digest for the new tag
             let new_ref_str = format!("{}:{}", reference.repository(), new_tag);
@@ -338,7 +355,11 @@ impl RegistryPoller {
             ) {
                 // Quick sanity check: does it look like a version?
                 // Must start with digit or 'v'
-                if !tag.chars().next().is_some_and(|c| c.is_ascii_digit() || c == 'v') {
+                if !tag
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_ascii_digit() || c == 'v')
+                {
                     debug!("Skipping non-version tag: {}", tag);
                     continue;
                 }
@@ -391,12 +412,7 @@ impl RegistryPoller {
     }
 
     /// Send an update event for a new image version
-    fn send_update_event(
-        &self,
-        reference: &Reference,
-        tag: &str,
-        digest: &str,
-    ) -> Result<()> {
+    fn send_update_event(&self, reference: &Reference, tag: &str, digest: &str) -> Result<()> {
         let event = ImagePushEvent {
             registry: extract_registry(reference.registry()),
             repository: reference.repository().to_string(),
@@ -410,7 +426,6 @@ impl RegistryPoller {
 
         Ok(())
     }
-
 }
 
 fn extract_registry(registry: &str) -> String {
