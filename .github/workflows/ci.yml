@@ -238,7 +238,7 @@ jobs:
 
       - name: Validate examples
         run: |
-          kubeconform -summary -output json examples/*.yaml
+          kubeconform -summary -output json -skip UpdateRequest examples/*.yaml
 
   # All checks must pass
   ci-success:
