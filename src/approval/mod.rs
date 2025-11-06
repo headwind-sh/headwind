@@ -11,8 +11,8 @@ use axum::{
 };
 use chrono::Utc;
 use k8s_openapi::api::apps::v1::Deployment;
-use kube::{Api, Client};
 use kube::api::{Patch, PatchParams};
+use kube::{Api, Client};
 use serde_json::json;
 use tokio::task::JoinHandle;
 use tower_http::trace::TraceLayer;
@@ -30,8 +30,14 @@ pub async fn start_approval_server() -> Result<JoinHandle<()>> {
     let app = Router::new()
         .route("/api/v1/updates", get(list_updates))
         .route("/api/v1/updates/{namespace}/{name}", get(get_update))
-        .route("/api/v1/updates/{namespace}/{name}/approve", post(approve_update))
-        .route("/api/v1/updates/{namespace}/{name}/reject", post(reject_update))
+        .route(
+            "/api/v1/updates/{namespace}/{name}/approve",
+            post(approve_update),
+        )
+        .route(
+            "/api/v1/updates/{namespace}/{name}/reject",
+            post(reject_update),
+        )
         .route("/health", get(health_check))
         .layer(TraceLayer::new_for_http())
         .with_state(state);
@@ -63,7 +69,7 @@ async fn list_updates(
         Err(e) => {
             error!("Failed to list UpdateRequests: {}", e);
             Err(StatusCode::INTERNAL_SERVER_ERROR)
-        }
+        },
     }
 }
 
@@ -78,7 +84,7 @@ async fn get_update(
         Err(e) => {
             warn!("UpdateRequest {}/{} not found: {}", namespace, name, e);
             Err(StatusCode::NOT_FOUND)
-        }
+        },
     }
 }
 
@@ -98,7 +104,7 @@ async fn approve_update(
                 StatusCode::NOT_FOUND,
                 Json(json!({"error": format!("UpdateRequest not found: {}", e)})),
             );
-        }
+        },
     };
 
     // Check if already approved/rejected
@@ -140,7 +146,7 @@ async fn approve_update(
                 last_updated: Some(Utc::now()),
                 ..Default::default()
             }
-        }
+        },
         Err(e) => {
             error!("Failed to apply update {}/{}: {}", namespace, name, e);
             UpdateRequestStatus {
@@ -151,7 +157,7 @@ async fn approve_update(
                 last_updated: Some(Utc::now()),
                 ..Default::default()
             }
-        }
+        },
     };
 
     // Patch the status
@@ -162,17 +168,13 @@ async fn approve_update(
     });
 
     match update_requests
-        .patch_status(
-            &name,
-            &PatchParams::default(),
-            &Patch::Merge(status_patch),
-        )
+        .patch_status(&name, &PatchParams::default(), &Patch::Merge(status_patch))
         .await
     {
         Ok(updated_ur) => {
             info!("Updated status for UpdateRequest {}/{}", namespace, name);
             (StatusCode::OK, Json(json!(updated_ur)))
-        }
+        },
         Err(e) => {
             error!(
                 "Failed to update status for UpdateRequest {}/{}: {}",
@@ -182,7 +184,7 @@ async fn approve_update(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({"error": format!("Failed to update status: {}", e)})),
             )
-        }
+        },
     }
 }
 
@@ -202,7 +204,7 @@ async fn reject_update(
                 StatusCode::NOT_FOUND,
                 Json(json!({"error": format!("UpdateRequest not found: {}", e)})),
             );
-        }
+        },
     };
 
     // Check if already approved/rejected
@@ -235,7 +237,10 @@ async fn reject_update(
         phase: UpdatePhase::Rejected,
         rejected_by: approval.approver.clone(),
         rejected_at: Some(Utc::now()),
-        message: approval.reason.clone().or(Some("Rejected by user".to_string())),
+        message: approval
+            .reason
+            .clone()
+            .or(Some("Rejected by user".to_string())),
         last_updated: Some(Utc::now()),
         ..Default::default()
     };
@@ -248,17 +253,13 @@ async fn reject_update(
     });
 
     match update_requests
-        .patch_status(
-            &name,
-            &PatchParams::default(),
-            &Patch::Merge(status_patch),
-        )
+        .patch_status(&name, &PatchParams::default(), &Patch::Merge(status_patch))
         .await
     {
         Ok(updated_ur) => {
             info!("Updated status for UpdateRequest {}/{}", namespace, name);
             (StatusCode::OK, Json(json!(updated_ur)))
-        }
+        },
         Err(e) => {
             error!(
                 "Failed to update status for UpdateRequest {}/{}: {}",
@@ -268,7 +269,7 @@ async fn reject_update(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({"error": format!("Failed to update status: {}", e)})),
             )
-        }
+        },
     }
 }
 
