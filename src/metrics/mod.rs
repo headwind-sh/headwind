@@ -154,18 +154,12 @@ pub fn register_metrics() {
     REGISTRY
         .register(Box::new(POLLING_NEW_TAGS_FOUND.clone()))
         .ok();
-    REGISTRY
-        .register(Box::new(ROLLBACKS_TOTAL.clone()))
-        .ok();
-    REGISTRY
-        .register(Box::new(ROLLBACKS_MANUAL.clone()))
-        .ok();
+    REGISTRY.register(Box::new(ROLLBACKS_TOTAL.clone())).ok();
+    REGISTRY.register(Box::new(ROLLBACKS_MANUAL.clone())).ok();
     REGISTRY
         .register(Box::new(ROLLBACKS_AUTOMATIC.clone()))
         .ok();
-    REGISTRY
-        .register(Box::new(ROLLBACKS_FAILED.clone()))
-        .ok();
+    REGISTRY.register(Box::new(ROLLBACKS_FAILED.clone())).ok();
     REGISTRY
         .register(Box::new(DEPLOYMENT_HEALTH_CHECKS.clone()))
         .ok();

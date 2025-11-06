@@ -1,7 +1,9 @@
 use crate::controller::update_deployment_image_with_tracking;
 use crate::models::crd::{UpdatePhase, UpdateRequest, UpdateRequestStatus};
 use crate::models::update::ApprovalRequest;
-use crate::rollback::{AutoRollbackConfig, HealthChecker, HealthStatus, RollbackManager, UpdateHistory};
+use crate::rollback::{
+    AutoRollbackConfig, HealthChecker, HealthStatus, RollbackManager, UpdateHistory,
+};
 use anyhow::Result;
 use axum::{
     Json, Router,
@@ -348,7 +350,7 @@ async fn execute_update(
         .metadata
         .annotations
         .as_ref()
-        .map(|a| AutoRollbackConfig::from_annotations(a))
+        .map(AutoRollbackConfig::from_annotations)
         .unwrap_or_default();
 
     // Store the current image for potential rollback
@@ -357,7 +359,7 @@ async fn execute_update(
         .iter()
         .find(|c| c.name == *container_name)
         .and_then(|c| c.image.as_ref())
-        .map(|i| i.clone());
+        .cloned();
 
     // Call the update function with tracking metadata
     update_deployment_image_with_tracking(

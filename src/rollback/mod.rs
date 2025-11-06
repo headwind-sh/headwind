@@ -5,7 +5,7 @@
 // 2. Allowing manual rollback to previous image versions
 // 3. Creating UpdateRequests for rollback operations
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use chrono::{DateTime, Utc};
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::Pod;
@@ -72,7 +72,7 @@ impl UpdateHistory {
                 let entries: Vec<UpdateHistoryEntry> = serde_json::from_str(json_str)
                     .context("Failed to parse update history from annotation")?;
                 Ok(Self { entries })
-            }
+            },
             None => Ok(Self::new()),
         }
     }
@@ -153,8 +153,8 @@ impl RollbackManager {
             .await
             .context("Failed to get deployment")?;
 
-        let mut history = UpdateHistory::from_deployment(&deployment)
-            .unwrap_or_else(|_| UpdateHistory::new());
+        let mut history =
+            UpdateHistory::from_deployment(&deployment).unwrap_or_else(|_| UpdateHistory::new());
 
         let entry = UpdateHistoryEntry {
             container: container.to_string(),
@@ -168,11 +168,7 @@ impl RollbackManager {
 
         // Update deployment annotation
         let history_json = history.to_json()?;
-        let mut annotations = deployment
-            .metadata
-            .annotations
-            .clone()
-            .unwrap_or_default();
+        let mut annotations = deployment.metadata.annotations.clone().unwrap_or_default();
         annotations.insert(HISTORY_ANNOTATION.to_string(), history_json);
 
         // Patch the deployment with new annotation
@@ -415,7 +411,11 @@ impl HealthChecker {
                 if let Some(container_statuses) = &status.container_statuses {
                     for container_status in container_statuses {
                         // Check for CrashLoopBackOff
-                        if let Some(waiting) = &container_status.state.as_ref().and_then(|s| s.waiting.as_ref()) {
+                        if let Some(waiting) = &container_status
+                            .state
+                            .as_ref()
+                            .and_then(|s| s.waiting.as_ref())
+                        {
                             if waiting.reason.as_deref() == Some("CrashLoopBackOff") {
                                 return Ok(HealthStatus::Failed(format!(
                                     "Container {} is in CrashLoopBackOff",
@@ -446,10 +446,7 @@ impl HealthChecker {
 
                         // Check if not ready
                         if !container_status.ready {
-                            debug!(
-                                "Container {} is not ready",
-                                container_status.name
-                            );
+                            debug!("Container {} is not ready", container_status.name);
                             return Ok(HealthStatus::Progressing);
                         }
                     }
@@ -493,10 +490,7 @@ impl HealthChecker {
                 .await
             {
                 Ok(HealthStatus::Healthy) => {
-                    info!(
-                        "Deployment {}/{} is healthy",
-                        namespace, deployment_name
-                    );
+                    info!("Deployment {}/{} is healthy", namespace, deployment_name);
                     return Ok(HealthStatus::Healthy);
                 },
                 Ok(HealthStatus::Failed(reason)) => {

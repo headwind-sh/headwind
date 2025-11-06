@@ -25,7 +25,10 @@ fn test_update_history_entry_serialization() {
 
     assert_eq!(deserialized.container, "app");
     assert_eq!(deserialized.image, "nginx:1.1.0");
-    assert_eq!(deserialized.update_request_name, Some("req-123".to_string()));
+    assert_eq!(
+        deserialized.update_request_name,
+        Some("req-123".to_string())
+    );
     assert_eq!(deserialized.approved_by, Some("webhook".to_string()));
 }
 
@@ -175,7 +178,10 @@ fn test_auto_rollback_config_from_annotations() {
     // Test with all annotations set
     let mut annotations = BTreeMap::new();
     annotations.insert("headwind.sh/auto-rollback".to_string(), "true".to_string());
-    annotations.insert("headwind.sh/rollback-timeout".to_string(), "600".to_string());
+    annotations.insert(
+        "headwind.sh/rollback-timeout".to_string(),
+        "600".to_string(),
+    );
     annotations.insert(
         "headwind.sh/health-check-retries".to_string(),
         "5".to_string(),
@@ -205,7 +211,10 @@ fn test_auto_rollback_config_partial_annotations() {
     // Test with only some annotations set
     let mut annotations = BTreeMap::new();
     annotations.insert("headwind.sh/auto-rollback".to_string(), "true".to_string());
-    annotations.insert("headwind.sh/rollback-timeout".to_string(), "900".to_string());
+    annotations.insert(
+        "headwind.sh/rollback-timeout".to_string(),
+        "900".to_string(),
+    );
     // health-check-retries not set, should use default
 
     let config = AutoRollbackConfig::from_annotations(&annotations);
