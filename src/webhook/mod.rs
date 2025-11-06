@@ -529,7 +529,9 @@ mod tests {
             "project/image",
             "gcr.io/other/image"
         ));
-        assert!(!images_match("docker.io", "library/nginx", "nginx"));
+        // When registry is "docker.io" and repository is "library/nginx",
+        // it should match "nginx" (official image without explicit library prefix)
+        assert!(images_match("docker.io", "library/nginx", "nginx"));
     }
 
     #[test]

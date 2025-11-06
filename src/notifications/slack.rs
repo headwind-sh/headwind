@@ -324,7 +324,8 @@ mod tests {
 
         assert_eq!(message["username"], "Headwind");
         assert_eq!(message["icon_emoji"], ":rocket:");
-        assert_eq!(message["channel"], "#deployments");
+        // Note: channel field is not included in the message for Incoming Webhooks
+        // as it's pre-configured in the webhook URL and cannot be overridden
         assert!(message["blocks"].is_array());
         assert!(!message["blocks"].as_array().unwrap().is_empty());
     }
