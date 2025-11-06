@@ -241,13 +241,81 @@ cargo test policy::tests::test_patch_policy
 cargo test -- --nocapture
 ```
 
+### Code Quality Checks
+
+**IMPORTANT**: Always run these checks before committing:
+
+```bash
+# 1. Run tests
+cargo test
+
+# 2. Check formatting
+cargo fmt --all -- --check
+
+# 3. Run clippy
+cargo clippy --all-features --all-targets -- -D warnings
+
+# 4. Check compilation
+cargo check --all-features --all-targets
+```
+
+Or use pre-commit hooks (recommended):
+
+```bash
+# Install pre-commit hooks
+pre-commit install
+
+# Run all hooks manually
+pre-commit run --all-files
+```
+
+The pre-commit hooks will automatically run:
+- `cargo fmt` (formatting)
+- `cargo clippy` (linting)
+- `cargo check` (compilation)
+- YAML validation
+- Secret detection
+- Trailing whitespace removal
+
+### Before Creating a Pull Request
+
+**CRITICAL CHECKLIST**:
+
+1. ✅ **Run all tests**: `cargo test`
+2. ✅ **Pass clippy**: `cargo clippy --all-features --all-targets -- -D warnings`
+3. ✅ **Format code**: `cargo fmt --all`
+4. ✅ **Test manually**: If possible, test changes in a real Kubernetes cluster
+5. ✅ **Update docs**: Update README.md, CLAUDE.md, or inline documentation as needed
+6. ✅ **Check metrics**: Ensure new features increment appropriate metrics
+7. ✅ **Run pre-commit checks**: `pre-commit run --all-files` (if hooks are installed)
+
+**Testing in Kubernetes**:
+
+```bash
+# Apply CRDs and RBAC
+kubectl apply -f deploy/k8s/crds/
+kubectl apply -f deploy/k8s/namespace.yaml
+kubectl apply -f deploy/k8s/rbac.yaml
+
+# Build and run locally
+cargo build --release
+RUST_LOG=headwind=debug ./target/release/headwind
+
+# Or build Docker image and deploy
+docker build -t headwind:test .
+kind load docker-image headwind:test  # or minikube
+kubectl apply -f deploy/k8s/deployment.yaml
+```
+
 ### Adding New Features
 
 1. **Add metrics first** - Define in `src/metrics/mod.rs`
 2. **Update models** - Add types in `src/models/`
 3. **Implement logic** - Add to appropriate module
 4. **Add tests** - Unit tests in same file
-5. **Update docs** - README.md and this file
+5. **Test thoroughly** - Run tests and manual testing
+6. **Run pre-commit checks** - Ensure code quality
+7. **Update docs** - README.md and this file
 
 ### Common Patterns
 
