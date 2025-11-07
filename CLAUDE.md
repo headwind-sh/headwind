@@ -137,8 +137,12 @@ Registry ──┬─→ Webhook Server ──→ Policy Engine → Approval Sys
   - `headwind.sh/policy` - Update policy
   - `headwind.sh/pattern` - Glob pattern (for glob policy)
   - `headwind.sh/require-approval` - Boolean, default true
-  - `headwind.sh/min-update-interval` - Seconds between updates
+  - `headwind.sh/min-update-interval` - Minimum seconds between updates (default: 300)
+  - `headwind.sh/last-update` - RFC3339 timestamp of last update (managed by Headwind)
   - `headwind.sh/images` - Comma-separated list of images to track
+  - `headwind.sh/auto-rollback` - Enable automatic rollback on failures
+  - `headwind.sh/rollback-timeout` - Health check monitoring duration
+  - `headwind.sh/health-check-retries` - Failed health checks before rollback
 
 **Current State**:
 - ✅ Watches all Deployments
@@ -163,10 +167,26 @@ Registry ──┬─→ Webhook Server ──→ Policy Engine → Approval Sys
   - `headwind_updates_rejected_total` - Counter
   - `headwind_updates_applied_total` - Counter
   - `headwind_updates_failed_total` - Counter
+  - `headwind_updates_skipped_interval_total` - Counter (updates skipped due to min interval)
   - `headwind_reconcile_duration_seconds` - Histogram
   - `headwind_reconcile_errors_total` - Counter
   - `headwind_deployments_watched` - Gauge
   - `headwind_helm_releases_watched` - Gauge
+  - `headwind_rollbacks_total` - Counter (all rollback operations)
+  - `headwind_rollbacks_manual_total` - Counter (manual rollbacks)
+  - `headwind_rollbacks_automatic_total` - Counter (automatic rollbacks)
+  - `headwind_rollbacks_failed_total` - Counter (failed rollbacks)
+  - `headwind_deployment_health_checks_total` - Counter
+  - `headwind_deployment_health_failures_total` - Counter
+  - `headwind_notifications_sent_total` - Counter
+  - `headwind_notifications_failed_total` - Counter
+  - `headwind_notifications_slack_sent_total` - Counter
+  - `headwind_notifications_teams_sent_total` - Counter
+  - `headwind_notifications_webhook_sent_total` - Counter
+  - `headwind_polling_cycles_total` - Counter
+  - `headwind_polling_errors_total` - Counter
+  - `headwind_polling_images_checked_total` - Counter
+  - `headwind_polling_new_tags_found_total` - Counter
 
 **Important**: Remember to increment metrics when implementing new features!
 

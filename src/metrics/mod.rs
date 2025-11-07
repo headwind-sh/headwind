@@ -146,6 +146,12 @@ lazy_static! {
         "headwind_notifications_webhook_sent_total",
         "Total number of notifications sent via generic webhook"
     ).unwrap();
+
+    // Update interval metrics
+    pub static ref UPDATES_SKIPPED_INTERVAL: IntCounter = IntCounter::new(
+        "headwind_updates_skipped_interval_total",
+        "Total number of updates skipped due to minimum interval not elapsed"
+    ).unwrap();
 }
 
 pub fn register_metrics() {
@@ -206,6 +212,9 @@ pub fn register_metrics() {
         .ok();
     REGISTRY
         .register(Box::new(NOTIFICATIONS_WEBHOOK_SENT.clone()))
+        .ok();
+    REGISTRY
+        .register(Box::new(UPDATES_SKIPPED_INTERVAL.clone()))
         .ok();
 
     info!("Metrics registered");

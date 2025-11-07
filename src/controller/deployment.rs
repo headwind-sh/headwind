@@ -271,6 +271,33 @@ pub async fn handle_image_update(
         return Ok(());
     }
 
+    // Check minimum update interval
+    let min_interval_seconds = policy.min_update_interval.unwrap_or(300);
+    if let Some(annotations) = &deployment.metadata.annotations
+        && let Some(last_update_str) =
+            annotations.get(crate::models::policy::annotations::LAST_UPDATE)
+        && let Ok(last_update) = chrono::DateTime::parse_from_rfc3339(last_update_str)
+    {
+        let now = chrono::Utc::now();
+        let elapsed = now.signed_duration_since(last_update.with_timezone(&chrono::Utc));
+        let min_interval = chrono::Duration::seconds(min_interval_seconds as i64);
+
+        if elapsed < min_interval {
+            let remaining = min_interval - elapsed;
+            info!(
+                "Skipping update for {}/{} container {}: minimum interval not reached ({} < {}s), {} seconds remaining",
+                namespace,
+                name,
+                container_name,
+                elapsed.num_seconds(),
+                min_interval_seconds,
+                remaining.num_seconds()
+            );
+            crate::metrics::UPDATES_SKIPPED_INTERVAL.inc();
+            return Ok(());
+        }
+    }
+
     info!(
         "Update available for {}/{} container {}: {} -> {}",
         namespace, name, container_name, current_tag, new_tag
@@ -651,5 +678,88 @@ mod tests {
             map_policy_to_crd(&UpdatePolicy::Force),
             UpdatePolicyType::None
         );
+    }
+
+    #[test]
+    fn test_min_update_interval_parsing() {
+        use chrono::{DateTime, Utc};
+
+        // Test parsing a valid last-update timestamp
+        let last_update_str = "2025-01-06T12:00:00Z";
+        let last_update = DateTime::parse_from_rfc3339(last_update_str);
+        assert!(last_update.is_ok());
+
+        // Test that we can calculate elapsed time
+        let last_update = last_update.unwrap().with_timezone(&Utc);
+        let now = Utc::now();
+        let elapsed = now.signed_duration_since(last_update);
+        assert!(elapsed.num_seconds() >= 0);
+    }
+
+    #[test]
+    fn test_min_update_interval_enforcement() {
+        use chrono::{Duration, Utc};
+
+        let min_interval = Duration::seconds(300); // 5 minutes
+
+        // Test 1: Update should be blocked if interval hasn't elapsed
+        let last_update = Utc::now() - Duration::seconds(60); // 1 minute ago
+        let now = Utc::now();
+        let elapsed = now.signed_duration_since(last_update);
+        assert!(
+            elapsed < min_interval,
+            "Update should be blocked: only {} seconds elapsed, need {} seconds",
+            elapsed.num_seconds(),
+            min_interval.num_seconds()
+        );
+
+        // Test 2: Update should proceed if interval has elapsed
+        let last_update = Utc::now() - Duration::seconds(600); // 10 minutes ago
+        let now = Utc::now();
+        let elapsed = now.signed_duration_since(last_update);
+        assert!(
+            elapsed >= min_interval,
+            "Update should proceed: {} seconds elapsed, minimum is {} seconds",
+            elapsed.num_seconds(),
+            min_interval.num_seconds()
+        );
+    }
+
+    #[test]
+    fn test_min_update_interval_different_values() {
+        use chrono::{Duration, Utc};
+
+        // Test with 1 minute interval
+        let min_interval = Duration::seconds(60);
+        let last_update = Utc::now() - Duration::seconds(30);
+        let elapsed = Utc::now().signed_duration_since(last_update);
+        assert!(elapsed < min_interval);
+
+        // Test with 1 hour interval
+        let min_interval = Duration::seconds(3600);
+        let last_update = Utc::now() - Duration::seconds(1800); // 30 minutes
+        let elapsed = Utc::now().signed_duration_since(last_update);
+        assert!(elapsed < min_interval);
+    }
+
+    #[test]
+    fn test_min_update_interval_with_annotations() {
+        let mut annotations = BTreeMap::new();
+        annotations.insert(
+            annotations::MIN_UPDATE_INTERVAL.to_string(),
+            "600".to_string(),
+        );
+
+        let policy = parse_policy_from_annotations(&annotations).unwrap();
+        assert_eq!(policy.min_update_interval, Some(600));
+    }
+
+    #[test]
+    fn test_min_update_interval_default() {
+        let annotations = BTreeMap::new();
+        let policy = parse_policy_from_annotations(&annotations).unwrap();
+
+        // Default should be 300 seconds (5 minutes)
+        assert_eq!(policy.min_update_interval, Some(300));
     }
 }

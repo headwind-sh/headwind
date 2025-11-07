@@ -446,12 +446,15 @@ Available metrics:
 - `headwind_updates_rejected_total` - Total rejected updates
 - `headwind_updates_applied_total` - Successfully applied updates
 - `headwind_updates_failed_total` - Failed update attempts
+- `headwind_updates_skipped_interval_total` - Updates skipped due to minimum interval not elapsed
 - `headwind_reconcile_duration_seconds` - Controller reconciliation time
 - `headwind_deployments_watched` - Number of watched Deployments
 - `headwind_rollbacks_total` - Total rollback operations performed
 - `headwind_rollbacks_manual_total` - Manual rollback operations
 - `headwind_rollbacks_automatic_total` - Automatic rollback operations
 - `headwind_rollbacks_failed_total` - Failed rollback operations
+- `headwind_deployment_health_checks_total` - Deployment health checks performed
+- `headwind_deployment_health_failures_total` - Deployment health check failures detected
 - `headwind_notifications_sent_total` - Total notifications sent successfully
 - `headwind_notifications_failed_total` - Total notification failures
 - `headwind_notifications_slack_sent_total` - Notifications sent to Slack
