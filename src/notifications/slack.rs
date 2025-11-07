@@ -68,6 +68,18 @@ impl SlackNotifier {
             }));
         }
 
+        // Format "HelmRelease" as "Helm Release" for better readability
+        let resource_kind = payload
+            .deployment
+            .resource_kind
+            .as_deref()
+            .unwrap_or("Deployment");
+        let formatted_kind = if resource_kind == "HelmRelease" {
+            "Helm Release"
+        } else {
+            resource_kind
+        };
+
         let mut blocks = vec![
             json!({
                 "type": "header",
@@ -86,7 +98,7 @@ impl SlackNotifier {
                     },
                     {
                         "type": "mrkdwn",
-                        "text": format!("*Deployment:*\n{}", payload.deployment.name)
+                        "text": format!("*{}:*\n{}", formatted_kind, payload.deployment.name)
                     },
                     {
                         "type": "mrkdwn",
@@ -313,6 +325,7 @@ mod tests {
             current_image: "nginx:1.25.0".to_string(),
             new_image: "nginx:1.26.0".to_string(),
             container: None,
+            resource_kind: None,
         };
 
         let payload = NotificationPayload::new(NotificationEvent::UpdateRequestCreated, deployment)
@@ -348,6 +361,7 @@ mod tests {
             current_image: "nginx:1.25.0".to_string(),
             new_image: "nginx:1.26.0".to_string(),
             container: None,
+            resource_kind: None,
         };
 
         let payload = NotificationPayload::new(NotificationEvent::UpdateFailed, deployment)

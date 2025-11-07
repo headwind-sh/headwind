@@ -1,0 +1,35 @@
+---
+# HelmRepository for JFrog HTTP
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: jfrog-http
+  namespace: default
+spec:
+  url: https://trial7h6srf.jfrog.io/artifactory/api/helm/headwind-helm
+  interval: 5m
+  type: default
+  secretRef:
+    name: jfrog-http-auth
+---
+# HelmRelease using busybox 1.0.0 - should discover 1.1.0
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: busybox-http
+  namespace: default
+  annotations:
+    headwind.sh/policy: "minor"
+    headwind.sh/require-approval: "true"
+spec:
+  interval: 5m
+  chart:
+    spec:
+      chart: busybox
+      version: "1.0.0"
+      sourceRef:
+        kind: HelmRepository
+        name: jfrog-http
+        namespace: default
+  values:
+    replicaCount: 1

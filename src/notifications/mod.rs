@@ -117,6 +117,8 @@ pub struct DeploymentInfo {
     pub new_image: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub container: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resource_kind: Option<String>,
 }
 
 /// Notification configuration loaded from ConfigMap/Secrets
@@ -557,60 +559,49 @@ impl NotificationPayload {
 
     /// Generate a human-readable title for the notification
     pub fn title(&self) -> String {
+        let resource_kind = self
+            .deployment
+            .resource_kind
+            .as_deref()
+            .unwrap_or("Deployment");
+        // Format "HelmRelease" as "Helm Release" for better readability
+        let formatted_kind = if resource_kind == "HelmRelease" {
+            "Helm Release"
+        } else {
+            resource_kind
+        };
+        let resource_ref = format!(
+            "{} {}/{}",
+            formatted_kind, self.deployment.namespace, self.deployment.name
+        );
+
         match self.event {
             NotificationEvent::UpdateDetected => {
-                format!(
-                    "New version detected: {}/{}",
-                    self.deployment.namespace, self.deployment.name
-                )
+                format!("New version detected: {}", resource_ref)
             },
             NotificationEvent::UpdateRequestCreated => {
-                format!(
-                    "Update request created: {}/{}",
-                    self.deployment.namespace, self.deployment.name
-                )
+                format!("Update request created: {}", resource_ref)
             },
             NotificationEvent::UpdateApproved => {
-                format!(
-                    "Update approved: {}/{}",
-                    self.deployment.namespace, self.deployment.name
-                )
+                format!("Update approved: {}", resource_ref)
             },
             NotificationEvent::UpdateRejected => {
-                format!(
-                    "Update rejected: {}/{}",
-                    self.deployment.namespace, self.deployment.name
-                )
+                format!("Update rejected: {}", resource_ref)
             },
             NotificationEvent::UpdateCompleted => {
-                format!(
-                    "Update completed: {}/{}",
-                    self.deployment.namespace, self.deployment.name
-                )
+                format!("Update completed: {}", resource_ref)
             },
             NotificationEvent::UpdateFailed => {
-                format!(
-                    "Update failed: {}/{}",
-                    self.deployment.namespace, self.deployment.name
-                )
+                format!("Update failed: {}", resource_ref)
             },
             NotificationEvent::RollbackTriggered => {
-                format!(
-                    "Rollback triggered: {}/{}",
-                    self.deployment.namespace, self.deployment.name
-                )
+                format!("Rollback triggered: {}", resource_ref)
             },
             NotificationEvent::RollbackCompleted => {
-                format!(
-                    "Rollback completed: {}/{}",
-                    self.deployment.namespace, self.deployment.name
-                )
+                format!("Rollback completed: {}", resource_ref)
             },
             NotificationEvent::RollbackFailed => {
-                format!(
-                    "Rollback failed: {}/{}",
-                    self.deployment.namespace, self.deployment.name
-                )
+                format!("Rollback failed: {}", resource_ref)
             },
         }
     }
@@ -793,6 +784,7 @@ mod tests {
             current_image: "nginx:1.25.0".to_string(),
             new_image: "nginx:1.26.0".to_string(),
             container: Some("nginx".to_string()),
+            resource_kind: None,
         };
 
         let payload = NotificationPayload::new(NotificationEvent::UpdateDetected, deployment)
@@ -812,10 +804,14 @@ mod tests {
             current_image: "nginx:1.25.0".to_string(),
             new_image: "nginx:1.26.0".to_string(),
             container: None,
+            resource_kind: None,
         };
 
         let payload = NotificationPayload::new(NotificationEvent::UpdateApproved, deployment);
-        assert_eq!(payload.title(), "Update approved: production/nginx");
+        assert_eq!(
+            payload.title(),
+            "Update approved: Deployment production/nginx"
+        );
     }
 
     #[test]
@@ -826,6 +822,7 @@ mod tests {
             current_image: "nginx:1.25.0".to_string(),
             new_image: "nginx:1.26.0".to_string(),
             container: None,
+            resource_kind: None,
         };
 
         let payload = NotificationPayload::new(NotificationEvent::UpdateApproved, deployment)

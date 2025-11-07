@@ -161,6 +161,7 @@ async fn approve_update(
         current_image: update_request.spec.current_image.clone(),
         new_image: update_request.spec.new_image.clone(),
         container: update_request.spec.container_name.clone(),
+        resource_kind: Some(update_request.spec.target_ref.kind.clone()),
     };
 
     // Send approval notification
@@ -286,6 +287,7 @@ async fn reject_update(
         current_image: update_request.spec.current_image.clone(),
         new_image: update_request.spec.new_image.clone(),
         container: update_request.spec.container_name.clone(),
+        resource_kind: Some(update_request.spec.target_ref.kind.clone()),
     };
 
     // Send rejection notification
@@ -358,13 +360,38 @@ async fn execute_update(
         target.kind, target.name, target.namespace
     );
 
-    // Currently only support Deployment updates
-    if target.kind != "Deployment" {
-        return Err(anyhow::anyhow!(
-            "Unsupported resource kind: {}. Only Deployment is currently supported.",
+    // Route to appropriate update handler based on resource kind
+    match target.kind.as_str() {
+        "Deployment" => {
+            execute_deployment_update(
+                client,
+                update_request,
+                update_request_name,
+                approved_by,
+                enable_auto_rollback,
+            )
+            .await
+        },
+        "HelmRelease" => {
+            execute_helmrelease_update(client, update_request, update_request_name, approved_by)
+                .await
+        },
+        _ => Err(anyhow::anyhow!(
+            "Unsupported resource kind: {}. Only Deployment and HelmRelease are supported.",
             target.kind
-        ));
+        )),
     }
+}
+
+async fn execute_deployment_update(
+    client: &Client,
+    update_request: &UpdateRequest,
+    update_request_name: Option<String>,
+    approved_by: Option<String>,
+    enable_auto_rollback: bool,
+) -> Result<()> {
+    let spec = &update_request.spec;
+    let target = &spec.target_ref;
 
     // Get the container name
     let container_name = spec
@@ -462,6 +489,7 @@ async fn execute_update(
                         current_image: new_image.clone(),
                         new_image: current_image.clone().unwrap_or_default(),
                         container: Some(container_name_clone.clone()),
+                        resource_kind: None,
                     };
                     notifications::notify_rollback_triggered(
                         deployment_info.clone(),
@@ -519,6 +547,7 @@ async fn execute_update(
                         current_image: new_image.clone(),
                         new_image: current_image.clone().unwrap_or_default(),
                         container: Some(container_name_clone.clone()),
+                        resource_kind: None,
                     };
                     notifications::notify_rollback_triggered(
                         deployment_info.clone(),
@@ -578,6 +607,88 @@ async fn execute_update(
             }
         });
     }
+
+    Ok(())
+}
+
+async fn execute_helmrelease_update(
+    client: &Client,
+    update_request: &UpdateRequest,
+    _update_request_name: Option<String>,
+    _approved_by: Option<String>,
+) -> Result<()> {
+    use crate::models::HelmRelease;
+    use kube::api::{Patch, PatchParams};
+    use serde_json::json;
+
+    let spec = &update_request.spec;
+    let target = &spec.target_ref;
+
+    info!(
+        "Executing Helm chart update for {}/{} in namespace {}",
+        target.kind, target.name, target.namespace
+    );
+
+    // Extract chart name and new version from the new_image field (format: "chart:version")
+    let (chart_name, new_version) = spec
+        .new_image
+        .split_once(':')
+        .ok_or_else(|| anyhow::anyhow!("Invalid chart version format in new_image"))?;
+
+    debug!(
+        "Updating HelmRelease {}/{} chart {} to version {}",
+        target.namespace, target.name, chart_name, new_version
+    );
+
+    // Get the HelmRelease
+    let helm_releases: Api<HelmRelease> = Api::namespaced(client.clone(), &target.namespace);
+    let helm_release = helm_releases.get(&target.name).await?;
+
+    // Verify the chart name matches
+    if helm_release.spec.chart.spec.chart != chart_name {
+        return Err(anyhow::anyhow!(
+            "Chart name mismatch: expected {}, found {}",
+            chart_name,
+            helm_release.spec.chart.spec.chart
+        ));
+    }
+
+    // Prepare the patch to update the chart version
+    let patch = json!({
+        "spec": {
+            "chart": {
+                "spec": {
+                    "version": new_version
+                }
+            }
+        }
+    });
+
+    // Apply the patch using strategic merge
+    let patch_params = PatchParams::default();
+    let _patched_release = helm_releases
+        .patch(&target.name, &patch_params, &Patch::Merge(&patch))
+        .await?;
+
+    info!(
+        "Successfully updated HelmRelease {}/{} to chart version {}",
+        target.namespace, target.name, new_version
+    );
+
+    // Send success notification
+    let deployment_info = crate::notifications::DeploymentInfo {
+        name: target.name.clone(),
+        namespace: target.namespace.clone(),
+        current_image: spec.current_image.clone(),
+        new_image: spec.new_image.clone(),
+        container: None,
+        resource_kind: Some("HelmRelease".to_string()),
+    };
+
+    crate::notifications::notify_update_completed(deployment_info);
+
+    // Increment metrics
+    crate::metrics::HELM_UPDATES_APPLIED.inc();
 
     Ok(())
 }

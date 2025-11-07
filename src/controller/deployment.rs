@@ -310,6 +310,7 @@ pub async fn handle_image_update(
         current_image: current_image.to_string(),
         new_image: new_image.to_string(),
         container: Some(container_name.to_string()),
+        resource_kind: None,
     };
     notifications::notify_update_detected(deployment_info);
 
@@ -411,6 +412,7 @@ async fn create_update_request(
         current_image: current_image.to_string(),
         new_image: new_image.to_string(),
         container: Some(container_name.to_string()),
+        resource_kind: None,
     };
     notifications::notify_update_request_created(
         deployment_info,

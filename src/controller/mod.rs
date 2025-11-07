@@ -1,4 +1,5 @@
 mod deployment;
+mod helm;
 
 use anyhow::Result;
 use tokio::task::JoinHandle;
@@ -8,6 +9,7 @@ pub use deployment::{
     DeploymentController, handle_image_update, update_deployment_image,
     update_deployment_image_with_tracking,
 };
+pub use helm::HelmController;
 
 pub async fn start_controllers() -> Result<JoinHandle<()>> {
     info!("Starting Kubernetes controllers");
@@ -22,12 +24,27 @@ pub async fn start_controllers() -> Result<JoinHandle<()>> {
         // Start deployment controller
         let deployment_controller = DeploymentController::new().await?;
 
-        tokio::spawn(async move {
-            deployment_controller.run().await;
-            tracing::info!("Deployment controller stopped");
+        // Start Helm controller
+        let policy_engine = std::sync::Arc::new(crate::policy::PolicyEngine);
+        let helm_controller = HelmController::new(policy_engine).await?;
 
-            // TODO: Start Helm controller and join both
-            // tokio::join!(deployment_handle, helm_handle);
+        tokio::spawn(async move {
+            // Run both controllers concurrently
+            let deployment_handle = tokio::spawn(async move {
+                deployment_controller.run().await;
+                tracing::info!("Deployment controller stopped");
+            });
+
+            let helm_handle = tokio::spawn(async move {
+                helm_controller.run().await;
+                tracing::info!("Helm controller stopped");
+            });
+
+            // Wait for either controller to stop
+            tokio::select! {
+                _ = deployment_handle => {},
+                _ = helm_handle => {},
+            }
         })
     } else {
         info!("Controllers disabled via HEADWIND_CONTROLLERS_ENABLED=false");

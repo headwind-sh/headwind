@@ -5,6 +5,7 @@
 
 pub mod approval;
 pub mod controller;
+pub mod helm;
 pub mod metrics;
 pub mod models;
 pub mod notifications;

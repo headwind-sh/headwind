@@ -156,7 +156,55 @@ Registry ──┬─→ Webhook Server ──→ Policy Engine → Approval Sys
 
 **Status**: ✅ **FULLY FUNCTIONAL** - Complete end-to-end workflow operational
 
-#### 6. Metrics (`src/metrics/mod.rs`)
+#### 6. Helm Controller (`src/controller/helm.rs`)
+- **Purpose**: Watches Flux HelmRelease CRDs, automatically discovers new chart versions, and manages chart updates
+- **Key Functions**:
+  - `reconcile()` - Main reconciliation loop for HelmRelease changes
+  - `parse_policy_from_annotations()` - Reads Headwind annotations from HelmRelease
+  - `build_resource_policy()` - Constructs ResourcePolicy from annotations
+  - `create_update_request()` - Creates and persists UpdateRequest CRD for Helm chart updates
+  - `update_helm_releases_count()` - Updates metrics gauge
+  - `check_for_chart_updates()` - Automatically queries Helm repositories for new versions
+  - `get_helm_repository()` - Fetches HelmRepository CRD referenced by HelmRelease
+- **Annotations Used**:
+  - `headwind.sh/policy` - Update policy
+  - `headwind.sh/pattern` - Glob pattern (for glob policy)
+  - `headwind.sh/require-approval` - Boolean, default true
+  - `headwind.sh/min-update-interval` - Minimum seconds between updates (default: 300)
+- **Metrics**:
+  - `HELM_RELEASES_WATCHED` - Gauge of HelmReleases being monitored
+  - `HELM_CHART_VERSIONS_CHECKED` - Counter of version checks performed
+  - `HELM_UPDATES_FOUND` - Counter of updates discovered
+  - `HELM_UPDATES_APPROVED` - Counter of updates approved by policy
+  - `HELM_UPDATES_REJECTED` - Counter of updates rejected by policy
+  - `HELM_UPDATES_APPLIED` - Counter of chart updates successfully applied
+  - `HELM_REPOSITORY_QUERIES` - Counter of repository queries performed
+  - `HELM_REPOSITORY_ERRORS` - Counter of repository query errors
+
+**Current State**:
+- ✅ Watches all HelmRelease CRDs (Flux CD v2)
+- ✅ Parses annotations and builds ResourcePolicy
+- ✅ Automatically queries HTTP Helm repositories for available chart versions
+- ✅ Supports OCI registries (with known limitations - see README)
+- ✅ Uses PolicyEngine for semantic version validation
+- ✅ Creates and persists UpdateRequest CRDs to Kubernetes
+- ✅ Executes chart updates via approval API (JSON patch on spec.chart.spec.version)
+- ✅ Sends notifications with resource kind differentiation
+- ✅ Full metrics tracking
+- ✅ Private repository authentication via secretRef
+
+**Repository Support**:
+- **HTTP Helm Repositories**: ✅ Fully supported (parses index.yaml, semantic versioning)
+- **OCI Registries**: ⚠️ Supported with limitations (oci-distribution crate v0.11 issue with common chart names)
+
+**Integration Points**:
+- `src/helm/http.rs` - HTTP repository client (index.yaml parsing)
+- `src/helm/oci.rs` - OCI registry client (tag listing via oci-distribution crate)
+- `src/approval/mod.rs` - Update execution via `execute_helmrelease_update()` function
+
+**Status**: ✅ **FULLY FUNCTIONAL** - Complete Helm chart auto-discovery and update workflow operational
+
+#### 7. Metrics (`src/metrics/mod.rs`)
 - **Port**: 9090
 - **Purpose**: Prometheus metrics and health checks
 - **Metrics Available**:
@@ -172,6 +220,14 @@ Registry ──┬─→ Webhook Server ──→ Policy Engine → Approval Sys
   - `headwind_reconcile_errors_total` - Counter
   - `headwind_deployments_watched` - Gauge
   - `headwind_helm_releases_watched` - Gauge
+  - `headwind_helm_chart_versions_checked_total` - Counter
+  - `headwind_helm_updates_found_total` - Counter
+  - `headwind_helm_updates_approved_total` - Counter
+  - `headwind_helm_updates_rejected_total` - Counter
+  - `headwind_helm_updates_applied_total` - Counter
+  - `headwind_helm_repository_queries_total` - Counter
+  - `headwind_helm_repository_errors_total` - Counter
+  - `headwind_helm_repository_query_duration_seconds` - Histogram
   - `headwind_rollbacks_total` - Counter (all rollback operations)
   - `headwind_rollbacks_manual_total` - Counter (manual rollbacks)
   - `headwind_rollbacks_automatic_total` - Counter (automatic rollbacks)
@@ -243,11 +299,33 @@ Components now communicate via:
 - ✅ Kubernetes API for UpdateRequest CRDs (shared state)
 - ✅ Direct Kubernetes API access (no shared state needed)
 
-### 4. **Helm Support** (Low Priority)
-Stub exists in `src/controller/helm.rs`. Would need:
-- Watch HelmRelease CRDs (Flux CD style)
-- Query Helm chart repositories for new versions
-- Update HelmRelease spec when new version available
+### ✅ 4. **Helm Support** (COMPLETED)
+Full Helm chart auto-discovery and update workflow implemented:
+
+```rust
+// In src/controller/helm.rs
+// ✅ Watches HelmRelease CRDs (Flux CD v2 API)
+// ✅ Automatically queries Helm repositories for available chart versions
+// ✅ Supports both HTTP Helm repositories and OCI registries
+// ✅ Uses PolicyEngine for semver-aware version selection
+// ✅ Creates and persists UpdateRequest CRDs to Kubernetes
+// ✅ Private repository authentication via secretRef
+// ✅ Full metrics and notification integration
+
+// In src/approval/mod.rs::execute_helmrelease_update()
+// ✅ Applies chart updates via JSON merge patch
+// ✅ Updates spec.chart.spec.version on approval
+// ✅ Full error handling and status reporting
+// ✅ HELM_UPDATES_APPLIED metric tracking
+```
+
+**Implementation Modules**:
+- `src/helm/http.rs` - HTTP Helm repository client (parses index.yaml)
+- `src/helm/oci.rs` - OCI registry client (uses oci-distribution crate)
+- `src/controller/helm.rs` - HelmRelease controller with auto-discovery
+- `src/approval/mod.rs` - Update execution for HelmReleases
+
+**Known Limitation**: OCI Helm repositories may query Docker Hub when chart names match common Docker images (oci-distribution crate v0.11 issue). HTTP repositories work perfectly.
 
 ## Development Guidelines
 
@@ -507,6 +585,7 @@ Default: Polling disabled, webhooks recommended
 2. ✅ Implement actual image updates
 3. ✅ Persistent approval request storage (CRDs)
 4. ✅ Registry polling implementation
+5. ✅ Flux HelmRelease support (basic version monitoring)
 
 ### High Priority (Next)
 1. Add integration tests with real cluster
@@ -515,7 +594,7 @@ Default: Polling disabled, webhooks recommended
 4. Wiki documentation (#36)
 
 ### Medium Priority
-1. Helm Release support
+1. Full Helm repository querying for automatic version discovery
 2. StatefulSet/DaemonSet support
 3. Web UI for approvals
 4. Slack/Teams notifications
@@ -568,4 +647,4 @@ For questions about this codebase, open an issue on GitHub with the `question` l
 ---
 
 Last Updated: 2025-11-06
-Version: 0.2.0-alpha (Core functionality complete, awaiting integration tests)
+Version: 0.2.0-alpha (Core functionality complete, Helm support added, awaiting integration tests)

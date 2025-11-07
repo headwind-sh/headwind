@@ -227,6 +227,7 @@ mod tests {
             current_image: "nginx:1.25.0".to_string(),
             new_image: "nginx:1.26.0".to_string(),
             container: None,
+            resource_kind: None,
         };
 
         let payload = NotificationPayload::new(NotificationEvent::UpdateRequestCreated, deployment)
@@ -257,6 +258,7 @@ mod tests {
             current_image: "nginx:1.25.0".to_string(),
             new_image: "nginx:1.26.0".to_string(),
             container: None,
+            resource_kind: None,
         };
 
         let payload = NotificationPayload::new(NotificationEvent::UpdateFailed, deployment)
@@ -283,6 +285,7 @@ mod tests {
             current_image: "nginx:1.25.0".to_string(),
             new_image: "nginx:1.26.0".to_string(),
             container: None,
+            resource_kind: None,
         };
 
         let payload = NotificationPayload::new(NotificationEvent::UpdateApproved, deployment)
