@@ -100,6 +100,16 @@ lazy_static! {
         "Total number of new tags discovered via polling"
     ).unwrap();
 
+    pub static ref POLLING_HELM_CHARTS_CHECKED: IntCounter = IntCounter::new(
+        "headwind_polling_helm_charts_checked_total",
+        "Total number of Helm charts checked during polling"
+    ).unwrap();
+
+    pub static ref POLLING_HELM_NEW_VERSIONS_FOUND: IntCounter = IntCounter::new(
+        "headwind_polling_helm_new_versions_found_total",
+        "Total number of new Helm chart versions discovered via polling"
+    ).unwrap();
+
     // Helm metrics
     pub static ref HELM_CHART_VERSIONS_CHECKED: IntCounter = IntCounter::new(
         "headwind_helm_chart_versions_checked_total",
@@ -242,6 +252,12 @@ pub fn register_metrics() {
         .ok();
     REGISTRY
         .register(Box::new(POLLING_NEW_TAGS_FOUND.clone()))
+        .ok();
+    REGISTRY
+        .register(Box::new(POLLING_HELM_CHARTS_CHECKED.clone()))
+        .ok();
+    REGISTRY
+        .register(Box::new(POLLING_HELM_NEW_VERSIONS_FOUND.clone()))
         .ok();
     REGISTRY
         .register(Box::new(HELM_CHART_VERSIONS_CHECKED.clone()))

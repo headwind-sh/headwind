@@ -1,9 +1,13 @@
 mod auth;
 
 use self::auth::AuthManager;
-use crate::metrics::{POLLING_CYCLES_TOTAL, POLLING_IMAGES_CHECKED, POLLING_NEW_TAGS_FOUND};
+use crate::metrics::{
+    POLLING_CYCLES_TOTAL, POLLING_HELM_CHARTS_CHECKED, POLLING_HELM_NEW_VERSIONS_FOUND,
+    POLLING_IMAGES_CHECKED, POLLING_NEW_TAGS_FOUND,
+};
 use crate::models::policy::{ResourcePolicy, UpdatePolicy, annotations};
-use crate::models::webhook::ImagePushEvent;
+use crate::models::webhook::{ChartPushEvent, ImagePushEvent};
+use crate::models::{HelmRelease, HelmRepository};
 use crate::policy::PolicyEngine;
 use anyhow::Result;
 use k8s_openapi::api::apps::v1::Deployment;
@@ -45,6 +49,27 @@ pub(crate) struct ImageToTrack {
     namespace: String,
 }
 
+/// Metadata for a Helm chart to track
+#[derive(Clone, Debug)]
+pub(crate) struct HelmChartToTrack {
+    chart_name: String,
+    repository_url: String, // Full URL: oci://registry.io/charts/mychart OR https://charts.example.com
+    repository_type: HelmRepositoryType,
+    current_version: String,
+    policy: UpdatePolicy,
+    pattern: Option<String>,
+    namespace: String,
+    #[allow(dead_code)] // May be used for correlation in future
+    release_name: String, // HelmRelease name for correlation
+}
+
+/// Type of Helm repository
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum HelmRepositoryType {
+    Oci,
+    Http,
+}
+
 /// Cache entry for tracking both tag and digest of an image
 #[derive(Clone, Debug, PartialEq)]
 struct CachedImageInfo {
@@ -52,13 +77,24 @@ struct CachedImageInfo {
     digest: String,
 }
 
+/// Cache entry for tracking Helm chart versions
+#[derive(Clone, Debug, PartialEq)]
+struct CachedChartInfo {
+    version: String,
+}
+
 /// Tracks the last seen tag and digest for each image
 type ImageCache = Arc<RwLock<HashMap<String, CachedImageInfo>>>;
+
+/// Tracks the last seen version for each Helm chart
+type ChartCache = Arc<RwLock<HashMap<String, CachedChartInfo>>>;
 
 pub struct RegistryPoller {
     config: PollingConfig,
     cache: ImageCache,
+    chart_cache: ChartCache,
     event_sender: crate::webhook::EventSender,
+    chart_event_sender: crate::webhook::ChartEventSender,
     client: Client,
     auth_manager: Arc<RwLock<AuthManager>>,
 }
@@ -67,13 +103,16 @@ impl RegistryPoller {
     pub async fn new(
         config: PollingConfig,
         event_sender: crate::webhook::EventSender,
+        chart_event_sender: crate::webhook::ChartEventSender,
     ) -> Result<Self> {
         let client = Client::try_default().await?;
         let auth_manager = AuthManager::new(client.clone());
         Ok(Self {
             config,
             cache: Arc::new(RwLock::new(HashMap::new())),
+            chart_cache: Arc::new(RwLock::new(HashMap::new())),
             event_sender,
+            chart_event_sender,
             client,
             auth_manager: Arc::new(RwLock::new(auth_manager)),
         })
@@ -88,9 +127,10 @@ impl RegistryPoller {
         tokio::spawn(async move {
             if !self.config.enabled {
                 info!("Registry polling is disabled");
-                // Keep the event sender alive by moving it into an infinite loop
-                // This prevents the webhook event channel from closing
+                // Keep the event senders alive by moving them into an infinite loop
+                // This prevents the webhook event channels from closing
                 let _sender = self.event_sender;
+                let _chart_sender = self.chart_event_sender;
                 loop {
                     tokio::time::sleep(Duration::from_secs(3600)).await;
                 }
@@ -118,6 +158,25 @@ impl RegistryPoller {
         for image_info in images {
             if let Err(e) = self.poll_image(&image_info).await {
                 error!("Failed to poll image {}: {}", image_info.image, e);
+            }
+        }
+
+        // Get list of Helm charts to track from Kubernetes
+        let charts = self.get_tracked_helm_releases().await?;
+        info!("Found {} Helm charts to track", charts.len());
+
+        // Poll each chart for updates based on repository type
+        for chart_info in charts {
+            let result = match chart_info.repository_type {
+                HelmRepositoryType::Oci => self.poll_oci_helm_chart(&chart_info).await,
+                HelmRepositoryType::Http => self.poll_http_helm_chart(&chart_info).await,
+            };
+
+            if let Err(e) = result {
+                error!(
+                    "Failed to poll {:?} Helm chart {}: {}",
+                    chart_info.repository_type, chart_info.chart_name, e
+                );
             }
         }
 
@@ -439,6 +498,509 @@ impl RegistryPoller {
 
         if let Err(e) = self.event_sender.send(event) {
             error!("Failed to send polling event: {}", e);
+        }
+
+        Ok(())
+    }
+
+    /// Get the list of Helm charts to track from Kubernetes HelmReleases
+    async fn get_tracked_helm_releases(&self) -> Result<Vec<HelmChartToTrack>> {
+        let helm_releases: Api<HelmRelease> = Api::all(self.client.clone());
+        let release_list = helm_releases.list(&Default::default()).await?;
+
+        let mut charts = Vec::new();
+        let mut seen = HashSet::new(); // Track unique chart+policy combinations
+
+        for helm_release in release_list.items {
+            let metadata = &helm_release.metadata;
+            let annotations = match &metadata.annotations {
+                Some(ann) => ann,
+                None => continue,
+            };
+
+            // Skip HelmReleases without headwind policy annotation
+            let policy_str = match annotations.get(annotations::POLICY) {
+                Some(p) if p != "none" => p,
+                _ => continue,
+            };
+
+            let policy = match UpdatePolicy::from_str(policy_str) {
+                Ok(p) => p,
+                Err(e) => {
+                    warn!("Invalid policy '{}': {}", policy_str, e);
+                    continue;
+                },
+            };
+
+            let pattern = annotations.get(annotations::PATTERN).cloned();
+            let namespace = metadata
+                .namespace
+                .clone()
+                .unwrap_or_else(|| "default".to_string());
+            let release_name = metadata
+                .name
+                .clone()
+                .unwrap_or_else(|| "unknown".to_string());
+
+            // Get chart information from HelmRelease spec
+            let chart_name = &helm_release.spec.chart.spec.chart;
+            let source_ref = &helm_release.spec.chart.spec.source_ref;
+
+            // Only process HelmRepository sources (not GitRepository, Bucket, etc.)
+            if source_ref.kind != "HelmRepository" {
+                debug!(
+                    "Skipping HelmRelease {}/{} with source kind {}",
+                    namespace, release_name, source_ref.kind
+                );
+                continue;
+            }
+
+            // Only process OCI repositories for now
+            let repo_namespace = source_ref.namespace.as_ref().unwrap_or(&namespace);
+            let helm_repos: Api<HelmRepository> =
+                Api::namespaced(self.client.clone(), repo_namespace);
+
+            let helm_repo = match helm_repos.get(&source_ref.name).await {
+                Ok(repo) => repo,
+                Err(e) => {
+                    warn!(
+                        "Failed to get HelmRepository {}/{}: {}",
+                        repo_namespace, source_ref.name, e
+                    );
+                    continue;
+                },
+            };
+
+            // Determine repository type and build URL
+            let repo_url = &helm_repo.spec.url;
+            let (repository_url, repository_type) = if repo_url.starts_with("oci://") {
+                // OCI repository: oci://registry.io/charts/mychart
+                (
+                    format!("{}/{}", repo_url.trim_end_matches('/'), chart_name),
+                    HelmRepositoryType::Oci,
+                )
+            } else if repo_url.starts_with("http://") || repo_url.starts_with("https://") {
+                // HTTP/HTTPS repository: just use the base URL
+                (repo_url.clone(), HelmRepositoryType::Http)
+            } else {
+                debug!(
+                    "Skipping HelmRepository {} with unsupported URL scheme: {}",
+                    source_ref.name, repo_url
+                );
+                continue;
+            };
+
+            // Get current version
+            let current_version = match &helm_release.spec.chart.spec.version {
+                Some(v) => v.clone(),
+                None => {
+                    debug!(
+                        "Skipping HelmRelease {}/{} without version specified",
+                        namespace, release_name
+                    );
+                    continue;
+                },
+            };
+
+            // Create unique key for deduplication
+            let key = format!("{}::{:?}", repository_url, policy);
+            if seen.insert(key) {
+                debug!(
+                    "  Adding Helm chart to track: {} (type: {:?}, version: {}, policy: {:?})",
+                    repository_url, repository_type, current_version, policy
+                );
+                charts.push(HelmChartToTrack {
+                    chart_name: chart_name.clone(),
+                    repository_url,
+                    repository_type,
+                    current_version,
+                    policy,
+                    pattern,
+                    namespace,
+                    release_name,
+                });
+            }
+        }
+
+        Ok(charts)
+    }
+
+    /// Poll a specific OCI Helm chart for updates
+    async fn poll_oci_helm_chart(&self, chart_info: &HelmChartToTrack) -> Result<()> {
+        debug!(
+            "Polling OCI Helm chart: {} (version: {}, policy: {:?})",
+            chart_info.repository_url, chart_info.current_version, chart_info.policy
+        );
+        POLLING_HELM_CHARTS_CHECKED.inc();
+
+        // Parse OCI URL to get registry and repository
+        // Format: oci://registry.io/path/to/chart
+        let url_without_scheme = chart_info
+            .repository_url
+            .strip_prefix("oci://")
+            .ok_or_else(|| anyhow::anyhow!("Invalid OCI URL: {}", chart_info.repository_url))?;
+
+        let reference_str = format!("{}:{}", url_without_scheme, chart_info.current_version);
+        let reference = Reference::try_from(reference_str.as_str())?;
+
+        // Create OCI client
+        let client = OciClient::new(Default::default());
+
+        // Get authentication for this chart (charts use same auth as images)
+        let mut auth_manager = self.auth_manager.write().await;
+        let auth = auth_manager
+            .get_auth_for_image(&chart_info.repository_url, &chart_info.namespace)
+            .await?;
+        drop(auth_manager);
+
+        // List available versions (tags)
+        let tag_response = match client.list_tags(&reference, &auth, None, None).await {
+            Ok(resp) => resp,
+            Err(e) => {
+                debug!(
+                    "Failed to list tags for {}: {} (registry may not support listing)",
+                    reference.repository(),
+                    e
+                );
+                return Ok(());
+            },
+        };
+
+        let current_version = &chart_info.current_version;
+        let policy_engine = Arc::new(PolicyEngine);
+
+        // Build ResourcePolicy for policy checks
+        let resource_policy = ResourcePolicy {
+            policy: chart_info.policy,
+            pattern: chart_info.pattern.clone(),
+            require_approval: true,
+            min_update_interval: None,
+            images: Vec::new(),
+        };
+
+        let mut best_version: Option<String> = None;
+
+        // Check each tag to find the best match
+        for tag in &tag_response.tags {
+            // Skip non-semantic version tags for semver policies
+            if matches!(
+                chart_info.policy,
+                UpdatePolicy::Patch | UpdatePolicy::Minor | UpdatePolicy::Major
+            ) {
+                if tag.starts_with('v') {
+                    // semver crate handles v prefix
+                } else if semver::Version::parse(tag).is_err() {
+                    debug!("Skipping non-version tag: {}", tag);
+                    continue;
+                }
+            }
+
+            // Check if this version should be considered for update
+            match policy_engine.should_update(&resource_policy, current_version, tag) {
+                Ok(true) => {
+                    debug!("Version {} matches policy {:?}", tag, chart_info.policy);
+
+                    // If we don't have a best version yet, or this one is better
+                    if best_version.is_none() {
+                        best_version = Some(tag.clone());
+                    } else if let Some(ref current_best) = best_version {
+                        // Check if new version is better than current best
+                        match policy_engine.should_update(&resource_policy, current_best, tag) {
+                            Ok(true) => {
+                                debug!(
+                                    "Version {} is better than current best {}",
+                                    tag, current_best
+                                );
+                                best_version = Some(tag.clone());
+                            },
+                            Ok(false) => {
+                                debug!("Version {} is not better than {}", tag, current_best);
+                            },
+                            Err(e) => {
+                                debug!("Failed to compare {} with {}: {}", tag, current_best, e);
+                            },
+                        }
+                    }
+                },
+                Ok(false) => {
+                    debug!("Version {} does not match policy", tag);
+                },
+                Err(e) => {
+                    debug!("Failed to check if version {} matches policy: {}", tag, e);
+                },
+            }
+        }
+
+        // If we found a better version, send an event
+        if let Some(new_version) = best_version
+            && &new_version != current_version
+        {
+            info!(
+                "New version found for Helm chart {}: {} -> {} (policy: {:?})",
+                chart_info.chart_name, current_version, new_version, chart_info.policy
+            );
+
+            // Check cache to avoid duplicate events
+            let cache_key = chart_info.repository_url.clone();
+            let cache = self.chart_cache.read().await;
+            let should_send = match cache.get(&cache_key) {
+                Some(cached) => cached.version != new_version,
+                None => true,
+            };
+            drop(cache);
+
+            if should_send {
+                // Update cache
+                let mut cache = self.chart_cache.write().await;
+                cache.insert(
+                    cache_key,
+                    CachedChartInfo {
+                        version: new_version.clone(),
+                    },
+                );
+                drop(cache);
+
+                // Send chart event
+                self.send_chart_event(
+                    &chart_info.repository_url,
+                    &chart_info.chart_name,
+                    &new_version,
+                )?;
+                POLLING_HELM_NEW_VERSIONS_FOUND.inc();
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Poll a specific HTTP/HTTPS Helm chart for updates
+    async fn poll_http_helm_chart(&self, chart_info: &HelmChartToTrack) -> Result<()> {
+        debug!(
+            "Polling HTTP Helm chart: {} (chart: {}, version: {}, policy: {:?})",
+            chart_info.repository_url,
+            chart_info.chart_name,
+            chart_info.current_version,
+            chart_info.policy
+        );
+        POLLING_HELM_CHARTS_CHECKED.inc();
+
+        // Fetch index.yaml from HTTP repository
+        let index_url = format!(
+            "{}/index.yaml",
+            chart_info.repository_url.trim_end_matches('/')
+        );
+        debug!("Fetching Helm repository index from: {}", index_url);
+
+        let response = match reqwest::get(&index_url).await {
+            Ok(resp) => resp,
+            Err(e) => {
+                debug!("Failed to fetch Helm repository index: {}", e);
+                return Ok(());
+            },
+        };
+
+        let index_yaml = match response.text().await {
+            Ok(text) => text,
+            Err(e) => {
+                debug!("Failed to read Helm repository index response: {}", e);
+                return Ok(());
+            },
+        };
+
+        // Parse index.yaml
+        let index: serde_yaml::Value = match serde_yaml::from_str(&index_yaml) {
+            Ok(idx) => idx,
+            Err(e) => {
+                debug!("Failed to parse Helm repository index YAML: {}", e);
+                return Ok(());
+            },
+        };
+
+        // Extract versions for this specific chart
+        let entries = match index.get("entries") {
+            Some(serde_yaml::Value::Mapping(map)) => map,
+            _ => {
+                debug!("Helm index.yaml missing 'entries' field");
+                return Ok(());
+            },
+        };
+
+        let chart_versions =
+            match entries.get(serde_yaml::Value::String(chart_info.chart_name.clone())) {
+                Some(serde_yaml::Value::Sequence(versions)) => versions,
+                _ => {
+                    debug!(
+                        "Chart '{}' not found in repository index",
+                        chart_info.chart_name
+                    );
+                    return Ok(());
+                },
+            };
+
+        let current_version = &chart_info.current_version;
+        let policy_engine = Arc::new(PolicyEngine);
+
+        // Build ResourcePolicy for policy checks
+        let resource_policy = ResourcePolicy {
+            policy: chart_info.policy,
+            pattern: chart_info.pattern.clone(),
+            require_approval: true,
+            min_update_interval: None,
+            images: Vec::new(),
+        };
+
+        let mut best_version: Option<String> = None;
+
+        // Check each version from the index
+        for version_entry in chart_versions {
+            // Extract version field
+            let version = match version_entry.get("version") {
+                Some(serde_yaml::Value::String(v)) => v,
+                _ => continue,
+            };
+
+            // Skip non-semantic version tags for semver policies
+            if matches!(
+                chart_info.policy,
+                UpdatePolicy::Patch | UpdatePolicy::Minor | UpdatePolicy::Major
+            ) {
+                if version.starts_with('v') {
+                    // semver crate handles v prefix
+                } else if semver::Version::parse(version).is_err() {
+                    debug!("Skipping non-version tag: {}", version);
+                    continue;
+                }
+            }
+
+            // Check if this version should be considered for update
+            match policy_engine.should_update(&resource_policy, current_version, version) {
+                Ok(true) => {
+                    debug!("Version {} matches policy {:?}", version, chart_info.policy);
+
+                    // If we don't have a best version yet, or this one is better
+                    if best_version.is_none() {
+                        best_version = Some(version.clone());
+                    } else if let Some(ref current_best) = best_version {
+                        // Check if new version is better than current best
+                        match policy_engine.should_update(&resource_policy, current_best, version) {
+                            Ok(true) => {
+                                debug!(
+                                    "Version {} is better than current best {}",
+                                    version, current_best
+                                );
+                                best_version = Some(version.clone());
+                            },
+                            Ok(false) => {
+                                debug!("Version {} is not better than {}", version, current_best);
+                            },
+                            Err(e) => {
+                                debug!(
+                                    "Failed to compare {} with {}: {}",
+                                    version, current_best, e
+                                );
+                            },
+                        }
+                    }
+                },
+                Ok(false) => {
+                    debug!("Version {} does not match policy", version);
+                },
+                Err(e) => {
+                    debug!(
+                        "Failed to check if version {} matches policy: {}",
+                        version, e
+                    );
+                },
+            }
+        }
+
+        // If we found a better version, send an event
+        if let Some(new_version) = best_version
+            && &new_version != current_version
+        {
+            info!(
+                "New version found for Helm chart {}: {} -> {} (policy: {:?})",
+                chart_info.chart_name, current_version, new_version, chart_info.policy
+            );
+
+            // Check cache to avoid duplicate events
+            let cache_key = format!("{}::{}", chart_info.repository_url, chart_info.chart_name);
+            let cache = self.chart_cache.read().await;
+            let should_send = match cache.get(&cache_key) {
+                Some(cached) => cached.version != new_version,
+                None => true,
+            };
+            drop(cache);
+
+            if should_send {
+                // Update cache
+                let mut cache = self.chart_cache.write().await;
+                cache.insert(
+                    cache_key,
+                    CachedChartInfo {
+                        version: new_version.clone(),
+                    },
+                );
+                drop(cache);
+
+                // Send chart event
+                self.send_chart_event(
+                    &chart_info.repository_url,
+                    &chart_info.chart_name,
+                    &new_version,
+                )?;
+                POLLING_HELM_NEW_VERSIONS_FOUND.inc();
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Send a chart update event
+    /// Supports both OCI (oci://registry.io/path/to/chart) and HTTP (https://charts.example.com) URLs
+    fn send_chart_event(
+        &self,
+        repository_url: &str,
+        chart_name: &str,
+        version: &str,
+    ) -> Result<()> {
+        let (registry, repository) = if repository_url.starts_with("oci://") {
+            // Parse OCI URL: oci://registry.io/path/to/chart
+            let url_without_scheme = repository_url
+                .strip_prefix("oci://")
+                .ok_or_else(|| anyhow::anyhow!("Invalid OCI URL: {}", repository_url))?;
+
+            // Split into registry and repository
+            let parts: Vec<&str> = url_without_scheme.splitn(2, '/').collect();
+            if parts.len() != 2 {
+                return Err(anyhow::anyhow!(
+                    "Invalid OCI URL format: {}",
+                    repository_url
+                ));
+            }
+
+            (parts[0].to_string(), parts[1].to_string())
+        } else {
+            // HTTP/HTTPS URL: extract hostname as registry, chart name as repository
+            // Example: https://charts.example.com -> registry: charts.example.com, repo: chartname
+            let url = reqwest::Url::parse(repository_url)?;
+            let registry = url
+                .host_str()
+                .ok_or_else(|| anyhow::anyhow!("Invalid HTTP URL: no host"))?
+                .to_string();
+
+            (registry, chart_name.to_string())
+        };
+
+        let event = ChartPushEvent {
+            registry,
+            repository,
+            version: version.to_string(),
+            digest: None,
+        };
+
+        if let Err(e) = self.chart_event_sender.send(event) {
+            error!("Failed to send chart polling event: {}", e);
         }
 
         Ok(())
