@@ -22,7 +22,7 @@ const config: Config = {
 
   // GitHub pages deployment config.
   // If you aren't using GitHub pages, you don't need these.
-  organizationName: 'headwind.sh', // Usually your GitHub org/user name.
+  organizationName: 'headwind-sh', // Usually your GitHub org/user name.
   projectName: 'headwind', // Usually your repo name.
 
   onBrokenLinks: 'throw',
@@ -42,7 +42,7 @@ const config: Config = {
         docs: {
           sidebarPath: './sidebars.ts',
           editUrl:
-            'https://github.com/headwind.sh/headwind/tree/main/docs/',
+            'https://github.com/headwind-sh/headwind/tree/main/docs/',
         },
         blog: {
           blogTitle: 'Changelog',
@@ -90,7 +90,7 @@ const config: Config = {
           position: 'right',
         },
         {
-          href: 'https://github.com/headwind.sh/headwind',
+          href: 'https://github.com/headwind-sh/headwind',
           label: 'GitHub',
           position: 'right',
         },
@@ -121,11 +121,11 @@ const config: Config = {
           items: [
             {
               label: 'GitHub Issues',
-              href: 'https://github.com/headwind.sh/headwind/issues',
+              href: 'https://github.com/headwind-sh/headwind/issues',
             },
             {
               label: 'GitHub Discussions',
-              href: 'https://github.com/headwind.sh/headwind/discussions',
+              href: 'https://github.com/headwind-sh/headwind/discussions',
             },
           ],
         },
@@ -134,11 +134,11 @@ const config: Config = {
           items: [
             {
               label: 'GitHub',
-              href: 'https://github.com/headwind.sh/headwind',
+              href: 'https://github.com/headwind-sh/headwind',
             },
             {
               label: 'Releases',
-              href: 'https://github.com/headwind.sh/headwind/releases',
+              href: 'https://github.com/headwind-sh/headwind/releases',
             },
           ],
         },
