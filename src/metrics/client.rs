@@ -241,6 +241,179 @@ impl MetricsClient for VictoriaMetricsClient {
     }
 }
 
+/// InfluxDB client (queries InfluxDB v2 API)
+pub struct InfluxDBClient {
+    url: String,
+    org: String,
+    bucket: String,
+    token: String,
+    client: Client,
+}
+
+impl InfluxDBClient {
+    pub fn new(url: String, org: String, bucket: String, token: String) -> Self {
+        Self {
+            url,
+            org,
+            bucket,
+            token,
+            client: Client::new(),
+        }
+    }
+
+    /// Check if InfluxDB is available
+    pub async fn is_available(&self) -> bool {
+        let ping_url = format!("{}/ping", self.url);
+        match self.client.get(&ping_url).send().await {
+            Ok(response) => response.status().is_success(),
+            Err(_) => false,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl MetricsClient for InfluxDBClient {
+    async fn query_range(
+        &self,
+        query: &str,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+        step: &str,
+    ) -> Result<Vec<MetricPoint>> {
+        // Convert step to duration for window aggregate
+        let step_duration = match step {
+            "5m" => "5m",
+            "1m" => "1m",
+            "15m" => "15m",
+            "1h" => "1h",
+            _ => "5m",
+        };
+
+        // Build Flux query
+        let flux_query = format!(
+            r#"from(bucket: "{}")
+  |> range(start: {}, stop: {})
+  |> filter(fn: (r) => r["_measurement"] == "{}")
+  |> aggregateWindow(every: {}, fn: mean, createEmpty: false)
+  |> yield(name: "mean")"#,
+            self.bucket,
+            start.to_rfc3339(),
+            end.to_rfc3339(),
+            query,
+            step_duration
+        );
+
+        let url = format!("{}/api/v2/query?org={}", self.url, self.org);
+        let response = self
+            .client
+            .post(&url)
+            .header("Authorization", format!("Token {}", self.token))
+            .header("Content-Type", "application/vnd.flux")
+            .body(flux_query)
+            .send()
+            .await
+            .map_err(|e| anyhow!("Failed to query InfluxDB: {}", e))?;
+
+        if !response.status().is_success() {
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            return Err(anyhow!("InfluxDB query failed: {}", error_text));
+        }
+
+        let body = response.text().await?;
+
+        // Parse CSV response from InfluxDB
+        let mut points = Vec::new();
+        for line in body.lines().skip(1) {
+            // Skip header
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+
+            let parts: Vec<&str> = line.split(',').collect();
+            if parts.len() >= 6
+                && let (Some(time_str), Some(value_str)) = (parts.get(5), parts.get(6))
+                && let (Ok(timestamp), Ok(value)) = (
+                    DateTime::parse_from_rfc3339(time_str),
+                    value_str.parse::<f64>(),
+                )
+            {
+                points.push(MetricPoint {
+                    timestamp: timestamp.with_timezone(&Utc),
+                    value,
+                });
+            }
+        }
+
+        Ok(points)
+    }
+
+    async fn query_instant(&self, query: &str) -> Result<MetricValue> {
+        // Query latest value
+        let flux_query = format!(
+            r#"from(bucket: "{}")
+  |> range(start: -1h)
+  |> filter(fn: (r) => r["_measurement"] == "{}")
+  |> last()
+  |> yield(name: "last")"#,
+            self.bucket, query
+        );
+
+        let url = format!("{}/api/v2/query?org={}", self.url, self.org);
+        let response = self
+            .client
+            .post(&url)
+            .header("Authorization", format!("Token {}", self.token))
+            .header("Content-Type", "application/vnd.flux")
+            .body(flux_query)
+            .send()
+            .await
+            .map_err(|e| anyhow!("Failed to query InfluxDB: {}", e))?;
+
+        if !response.status().is_success() {
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            return Err(anyhow!("InfluxDB query failed: {}", error_text));
+        }
+
+        let body = response.text().await?;
+
+        // Parse CSV response
+        for line in body.lines().skip(1) {
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+
+            let parts: Vec<&str> = line.split(',').collect();
+            if parts.len() >= 6
+                && let (Some(time_str), Some(value_str)) = (parts.get(5), parts.get(6))
+                && let (Ok(timestamp), Ok(value)) = (
+                    DateTime::parse_from_rfc3339(time_str),
+                    value_str.parse::<f64>(),
+                )
+            {
+                return Ok(MetricValue {
+                    timestamp: timestamp.with_timezone(&Utc),
+                    value,
+                });
+            }
+        }
+
+        Err(anyhow!(
+            "No data returned from InfluxDB for metric {}",
+            query
+        ))
+    }
+
+    fn backend_type(&self) -> &str {
+        "InfluxDB"
+    }
+}
+
 /// Live metrics client (reads from /metrics endpoint directly)
 pub struct LiveMetricsClient {
     metrics_url: String,
@@ -304,6 +477,7 @@ impl MetricsClient for LiveMetricsClient {
 }
 
 /// Auto-discover and create the appropriate metrics client
+#[allow(clippy::too_many_arguments)]
 pub async fn create_metrics_client(
     backend_type: &str,
     prometheus_url: Option<String>,
@@ -312,6 +486,9 @@ pub async fn create_metrics_client(
     victoriametrics_enabled: bool,
     influxdb_url: Option<String>,
     influxdb_enabled: bool,
+    influxdb_org: Option<String>,
+    influxdb_bucket: Option<String>,
+    influxdb_token: Option<String>,
 ) -> Box<dyn MetricsClient> {
     match backend_type {
         "auto" => {
@@ -337,12 +514,19 @@ pub async fn create_metrics_client(
                 warn!("VictoriaMetrics configured at {} but not available", url);
             }
 
-            // TODO: Try InfluxDB
-            if influxdb_enabled && let Some(url) = influxdb_url {
-                warn!(
-                    "InfluxDB support not yet implemented, configured at {}",
-                    url
-                );
+            // Try InfluxDB
+            if influxdb_enabled
+                && let Some(url) = influxdb_url.clone()
+                && let Some(org) = influxdb_org.clone()
+                && let Some(bucket) = influxdb_bucket.clone()
+                && let Some(token) = influxdb_token.clone()
+            {
+                let client = InfluxDBClient::new(url.clone(), org, bucket, token);
+                if client.is_available().await {
+                    info!("Discovered InfluxDB at {}", url);
+                    return Box::new(client);
+                }
+                warn!("InfluxDB configured at {} but not available", url);
             }
 
             // Fall back to live metrics
@@ -366,11 +550,13 @@ pub async fn create_metrics_client(
             Box::new(VictoriaMetricsClient::new(url))
         },
         "influxdb" => {
-            // TODO: Implement InfluxDB client
-            warn!("InfluxDB not yet implemented, falling back to live metrics");
-            Box::new(LiveMetricsClient::new(
-                "http://localhost:9090/metrics".to_string(),
-            ))
+            let url = influxdb_url
+                .unwrap_or_else(|| "http://influxdb.monitoring.svc.cluster.local:8086".to_string());
+            let org = influxdb_org.unwrap_or_else(|| "headwind".to_string());
+            let bucket = influxdb_bucket.unwrap_or_else(|| "metrics".to_string());
+            let token = influxdb_token.unwrap_or_else(|| "headwind-test-token".to_string());
+            info!("Using InfluxDB at {}", url);
+            Box::new(InfluxDBClient::new(url, org, bucket, token))
         },
         "live" => {
             info!("Using live metrics only");

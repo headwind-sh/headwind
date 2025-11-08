@@ -59,5 +59,9 @@ data:
   observability.influxdb.enabled: "false"
   # InfluxDB server URL (default: http://influxdb.monitoring.svc.cluster.local:8086)
   observability.influxdb.url: "http://influxdb.monitoring.svc.cluster.local:8086"
-  # InfluxDB database name (default: headwind)
-  observability.influxdb.database: "headwind"
+  # InfluxDB organization (default: headwind)
+  observability.influxdb.org: "headwind"
+  # InfluxDB bucket name (default: metrics)
+  observability.influxdb.bucket: "metrics"
+  # InfluxDB API token (default: headwind-test-token)
+  observability.influxdb.token: "headwind-test-token"

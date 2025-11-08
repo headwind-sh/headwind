@@ -454,6 +454,9 @@ pub async fn get_metrics_data() -> impl IntoResponse {
         config.observability.victoriametrics.enabled,
         config.observability.influxdb.url.clone(),
         config.observability.influxdb.enabled,
+        config.observability.influxdb.org.clone(),
+        config.observability.influxdb.bucket.clone(),
+        config.observability.influxdb.token.clone(),
     )
     .await;
 
@@ -535,6 +538,9 @@ pub async fn get_metrics_timeseries(Path(metric_name): Path<String>) -> impl Int
         config.observability.victoriametrics.enabled,
         config.observability.influxdb.url.clone(),
         config.observability.influxdb.enabled,
+        config.observability.influxdb.org.clone(),
+        config.observability.influxdb.bucket.clone(),
+        config.observability.influxdb.token.clone(),
     )
     .await;
 

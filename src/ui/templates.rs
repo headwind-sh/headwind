@@ -41,6 +41,9 @@ pub fn base_layout(title: &str, content: Markup) -> Markup {
                 // HTMX
                 script src="https://unpkg.com/htmx.org@1.9.10" {}
 
+                // Chart.js
+                script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" {}
+
                 // Custom styles
                 link rel="stylesheet" href="/static/css/custom.css";
             }
@@ -963,9 +966,23 @@ pub fn settings() -> Markup {
 
                     div class="form-control mb-4" {
                         label class="label" {
-                            span class="label-text" { "InfluxDB Database" }
+                            span class="label-text" { "InfluxDB Organization" }
                         }
-                        input type="text" id="observability-influxdb-database" class="input input-bordered" placeholder="headwind";
+                        input type="text" id="observability-influxdb-org" class="input input-bordered" placeholder="headwind";
+                    }
+
+                    div class="form-control mb-4" {
+                        label class="label" {
+                            span class="label-text" { "InfluxDB Bucket" }
+                        }
+                        input type="text" id="observability-influxdb-bucket" class="input input-bordered" placeholder="metrics";
+                    }
+
+                    div class="form-control mb-4" {
+                        label class="label" {
+                            span class="label-text" { "InfluxDB API Token" }
+                        }
+                        input type="password" id="observability-influxdb-token" class="input input-bordered" placeholder="your-api-token";
                     }
                 }
             }
@@ -1021,7 +1038,9 @@ pub fn settings() -> Markup {
                     document.getElementById('observability-victoriametrics-url').value = config.observability.victoriametrics.url || '';
                     document.getElementById('observability-influxdb-enabled').checked = config.observability.influxdb.enabled;
                     document.getElementById('observability-influxdb-url').value = config.observability.influxdb.url || '';
-                    document.getElementById('observability-influxdb-database').value = config.observability.influxdb.database || '';
+                    document.getElementById('observability-influxdb-org').value = config.observability.influxdb.org || '';
+                    document.getElementById('observability-influxdb-bucket').value = config.observability.influxdb.bucket || '';
+                    document.getElementById('observability-influxdb-token').value = config.observability.influxdb.token || '';
 
                     // Show form, hide loading
                     document.getElementById('settings-loading').classList.add('hidden');
@@ -1075,7 +1094,9 @@ pub fn settings() -> Markup {
                         influxdb: {
                             enabled: document.getElementById('observability-influxdb-enabled').checked,
                             url: document.getElementById('observability-influxdb-url').value || null,
-                            database: document.getElementById('observability-influxdb-database').value || null
+                            org: document.getElementById('observability-influxdb-org').value || null,
+                            bucket: document.getElementById('observability-influxdb-bucket').value || null,
+                            token: document.getElementById('observability-influxdb-token').value || null
                         }
                     }
                 };
@@ -1208,6 +1229,24 @@ pub fn observability() -> Markup {
                     }
                 }
             }
+
+            // Time-series charts
+            div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6" {
+                // Updates over time chart
+                div class="card bg-base-100 shadow-xl" {
+                    div class="card-body" {
+                        h2 class="card-title text-xl mb-4" { "Updates Over Time" }
+                        canvas id="updates-chart" {}
+                    }
+                }
+                // Resources watched over time chart
+                div class="card bg-base-100 shadow-xl" {
+                    div class="card-body" {
+                        h2 class="card-title text-xl mb-4" { "Resources Watched" }
+                        canvas id="resources-chart" {}
+                    }
+                }
+            }
         }
 
         // JavaScript for loading metrics
@@ -1218,6 +1257,9 @@ pub fn observability() -> Markup {
                 // Refresh metrics every 30 seconds
                 setInterval(loadMetrics, 30000);
             });
+
+            let updatesChart = null;
+            let resourcesChart = null;
 
             async function loadMetrics() {
                 try {
@@ -1249,9 +1291,135 @@ pub fn observability() -> Markup {
                     // Show dashboard, hide loading
                     document.getElementById('metrics-loading').classList.add('hidden');
                     document.getElementById('metrics-dashboard').classList.remove('hidden');
+
+                    // Load time-series charts
+                    if (metrics.backend !== 'Live') {
+                        await loadCharts();
+                    }
                 } catch (error) {
                     console.error('Failed to load metrics:', error);
-                    showToast('Failed to load metrics', 'error');
+                }
+            }
+
+            async function loadCharts() {
+                try {
+                    // Load updates time series
+                    const updatesData = await Promise.all([
+                        fetch('/api/v1/metrics/timeseries/headwind_updates_approved_total').then(r => r.json()),
+                        fetch('/api/v1/metrics/timeseries/headwind_updates_applied_total').then(r => r.json()),
+                        fetch('/api/v1/metrics/timeseries/headwind_updates_failed_total').then(r => r.json())
+                    ]);
+
+                    // Load resources time series
+                    const resourcesData = await Promise.all([
+                        fetch('/api/v1/metrics/timeseries/headwind_deployments_watched').then(r => r.json()),
+                        fetch('/api/v1/metrics/timeseries/headwind_statefulsets_watched').then(r => r.json()),
+                        fetch('/api/v1/metrics/timeseries/headwind_daemonsets_watched').then(r => r.json()),
+                        fetch('/api/v1/metrics/timeseries/headwind_helm_releases_watched').then(r => r.json())
+                    ]);
+
+                    // Create updates chart
+                    if (updatesChart) updatesChart.destroy();
+                    const updatesCtx = document.getElementById('updates-chart').getContext('2d');
+                    updatesChart = new Chart(updatesCtx, {
+                        type: 'line',
+                        data: {
+                            labels: updatesData[0].map(p => new Date(p.timestamp).toLocaleTimeString()),
+                            datasets: [
+                                {
+                                    label: 'Approved',
+                                    data: updatesData[0].map(p => p.value),
+                                    borderColor: 'rgb(75, 192, 192)',
+                                    backgroundColor: 'rgba(75, 192, 192, 0.1)',
+                                    tension: 0.4
+                                },
+                                {
+                                    label: 'Applied',
+                                    data: updatesData[1].map(p => p.value),
+                                    borderColor: 'rgb(54, 162, 235)',
+                                    backgroundColor: 'rgba(54, 162, 235, 0.1)',
+                                    tension: 0.4
+                                },
+                                {
+                                    label: 'Failed',
+                                    data: updatesData[2].map(p => p.value),
+                                    borderColor: 'rgb(255, 99, 132)',
+                                    backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                                    tension: 0.4
+                                }
+                            ]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: true,
+                            plugins: {
+                                legend: {
+                                    position: 'bottom'
+                                }
+                            },
+                            scales: {
+                                y: {
+                                    beginAtZero: true
+                                }
+                            }
+                        }
+                    });
+
+                    // Create resources chart
+                    if (resourcesChart) resourcesChart.destroy();
+                    const resourcesCtx = document.getElementById('resources-chart').getContext('2d');
+                    resourcesChart = new Chart(resourcesCtx, {
+                        type: 'line',
+                        data: {
+                            labels: resourcesData[0].map(p => new Date(p.timestamp).toLocaleTimeString()),
+                            datasets: [
+                                {
+                                    label: 'Deployments',
+                                    data: resourcesData[0].map(p => p.value),
+                                    borderColor: 'rgb(153, 102, 255)',
+                                    backgroundColor: 'rgba(153, 102, 255, 0.1)',
+                                    tension: 0.4
+                                },
+                                {
+                                    label: 'StatefulSets',
+                                    data: resourcesData[1].map(p => p.value),
+                                    borderColor: 'rgb(255, 159, 64)',
+                                    backgroundColor: 'rgba(255, 159, 64, 0.1)',
+                                    tension: 0.4
+                                },
+                                {
+                                    label: 'DaemonSets',
+                                    data: resourcesData[2].map(p => p.value),
+                                    borderColor: 'rgb(255, 205, 86)',
+                                    backgroundColor: 'rgba(255, 205, 86, 0.1)',
+                                    tension: 0.4
+                                },
+                                {
+                                    label: 'Helm Releases',
+                                    data: resourcesData[3].map(p => p.value),
+                                    borderColor: 'rgb(201, 203, 207)',
+                                    backgroundColor: 'rgba(201, 203, 207, 0.1)',
+                                    tension: 0.4
+                                }
+                            ]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: true,
+                            plugins: {
+                                legend: {
+                                    position: 'bottom'
+                                }
+                            },
+                            scales: {
+                                y: {
+                                    beginAtZero: true
+                                }
+                            }
+                        }
+                    });
+                } catch (error) {
+                    console.error('Failed to load charts:', error);
                 }
             }
             "#))

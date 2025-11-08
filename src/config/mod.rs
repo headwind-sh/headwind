@@ -95,7 +95,9 @@ pub struct VictoriaMetricsConfig {
 pub struct InfluxDBConfig {
     pub enabled: bool,
     pub url: Option<String>,
-    pub database: Option<String>,
+    pub org: Option<String>,
+    pub bucket: Option<String>,
+    pub token: Option<String>,
 }
 
 impl Default for HeadwindConfig {
@@ -143,7 +145,9 @@ impl Default for HeadwindConfig {
                 influxdb: InfluxDBConfig {
                     enabled: false,
                     url: Some("http://influxdb.monitoring.svc.cluster.local:8086".to_string()),
-                    database: Some("headwind".to_string()),
+                    org: Some("headwind".to_string()),
+                    bucket: Some("metrics".to_string()),
+                    token: Some("headwind-test-token".to_string()),
                 },
             },
         }
@@ -261,11 +265,12 @@ impl HeadwindConfig {
                     url: parse_optional_string(&config_data, "observability.influxdb.url").or_else(
                         || Some("http://influxdb.monitoring.svc.cluster.local:8086".to_string()),
                     ),
-                    database: parse_optional_string(
-                        &config_data,
-                        "observability.influxdb.database",
-                    )
-                    .or_else(|| Some("headwind".to_string())),
+                    org: parse_optional_string(&config_data, "observability.influxdb.org")
+                        .or_else(|| Some("headwind".to_string())),
+                    bucket: parse_optional_string(&config_data, "observability.influxdb.bucket")
+                        .or_else(|| Some("metrics".to_string())),
+                    token: parse_optional_string(&config_data, "observability.influxdb.token")
+                        .or_else(|| Some("headwind-test-token".to_string())),
                 },
             },
         };
@@ -368,10 +373,22 @@ impl HeadwindConfig {
             self.observability.influxdb.url.clone().unwrap_or_default(),
         );
         config_data.insert(
-            "observability.influxdb.database".to_string(),
+            "observability.influxdb.org".to_string(),
+            self.observability.influxdb.org.clone().unwrap_or_default(),
+        );
+        config_data.insert(
+            "observability.influxdb.bucket".to_string(),
             self.observability
                 .influxdb
-                .database
+                .bucket
+                .clone()
+                .unwrap_or_default(),
+        );
+        config_data.insert(
+            "observability.influxdb.token".to_string(),
+            self.observability
+                .influxdb
+                .token
                 .clone()
                 .unwrap_or_default(),
         );
