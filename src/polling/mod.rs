@@ -47,6 +47,8 @@ pub(crate) struct ImageToTrack {
     #[allow(dead_code)] // Will be used for semver/glob matching in future
     pattern: Option<String>,
     namespace: String,
+    /// Per-resource polling interval in seconds (overrides global interval)
+    polling_interval: Option<u64>,
 }
 
 /// Metadata for a Helm chart to track
@@ -61,6 +63,8 @@ pub(crate) struct HelmChartToTrack {
     namespace: String,
     #[allow(dead_code)] // May be used for correlation in future
     release_name: String, // HelmRelease name for correlation
+    /// Per-resource polling interval in seconds (overrides global interval)
+    polling_interval: Option<u64>,
 }
 
 /// Type of Helm repository
@@ -89,10 +93,14 @@ type ImageCache = Arc<RwLock<HashMap<String, CachedImageInfo>>>;
 /// Tracks the last seen version for each Helm chart
 type ChartCache = Arc<RwLock<HashMap<String, CachedChartInfo>>>;
 
+/// Tracks the last poll time for each resource (by unique key)
+type LastPollCache = Arc<RwLock<HashMap<String, std::time::Instant>>>;
+
 pub struct RegistryPoller {
     config: PollingConfig,
     cache: ImageCache,
     chart_cache: ChartCache,
+    last_poll_cache: LastPollCache,
     event_sender: crate::webhook::EventSender,
     chart_event_sender: crate::webhook::ChartEventSender,
     client: Client,
@@ -111,6 +119,7 @@ impl RegistryPoller {
             config,
             cache: Arc::new(RwLock::new(HashMap::new())),
             chart_cache: Arc::new(RwLock::new(HashMap::new())),
+            last_poll_cache: Arc::new(RwLock::new(HashMap::new())),
             event_sender,
             chart_event_sender,
             client,
@@ -150,23 +159,69 @@ impl RegistryPoller {
         debug!("Starting registry poll cycle");
         POLLING_CYCLES_TOTAL.inc();
 
+        let now = std::time::Instant::now();
+
         // Get list of images to track from Kubernetes
         let images = self.get_tracked_images().await?;
         info!("Found {} images to track", images.len());
 
-        // Poll each image for updates
+        // Poll each image for updates, respecting per-resource intervals
         for image_info in images {
+            let key = format!("image::{}", image_info.image);
+            let interval = image_info.polling_interval.unwrap_or(self.config.interval);
+
+            // Check if enough time has elapsed since last poll
+            let should_poll = {
+                let last_poll_cache = self.last_poll_cache.read().await;
+                match last_poll_cache.get(&key) {
+                    Some(last_poll) => now.duration_since(*last_poll).as_secs() >= interval,
+                    None => true, // Never polled before
+                }
+            };
+
+            if !should_poll {
+                debug!(
+                    "Skipping image {} - interval {}s not elapsed",
+                    image_info.image, interval
+                );
+                continue;
+            }
+
             if let Err(e) = self.poll_image(&image_info).await {
                 error!("Failed to poll image {}: {}", image_info.image, e);
             }
+
+            // Update last poll time
+            let mut last_poll_cache = self.last_poll_cache.write().await;
+            last_poll_cache.insert(key, now);
         }
 
         // Get list of Helm charts to track from Kubernetes
         let charts = self.get_tracked_helm_releases().await?;
         info!("Found {} Helm charts to track", charts.len());
 
-        // Poll each chart for updates based on repository type
+        // Poll each chart for updates based on repository type, respecting per-resource intervals
         for chart_info in charts {
+            let key = format!("chart::{}", chart_info.repository_url);
+            let interval = chart_info.polling_interval.unwrap_or(self.config.interval);
+
+            // Check if enough time has elapsed since last poll
+            let should_poll = {
+                let last_poll_cache = self.last_poll_cache.read().await;
+                match last_poll_cache.get(&key) {
+                    Some(last_poll) => now.duration_since(*last_poll).as_secs() >= interval,
+                    None => true, // Never polled before
+                }
+            };
+
+            if !should_poll {
+                debug!(
+                    "Skipping chart {} - interval {}s not elapsed",
+                    chart_info.chart_name, interval
+                );
+                continue;
+            }
+
             let result = match chart_info.repository_type {
                 HelmRepositoryType::Oci => self.poll_oci_helm_chart(&chart_info).await,
                 HelmRepositoryType::Http => self.poll_http_helm_chart(&chart_info).await,
@@ -178,6 +233,10 @@ impl RegistryPoller {
                     chart_info.repository_type, chart_info.chart_name, e
                 );
             }
+
+            // Update last poll time
+            let mut last_poll_cache = self.last_poll_cache.write().await;
+            last_poll_cache.insert(key, now);
         }
 
         info!("Registry poll cycle completed");
@@ -235,6 +294,11 @@ impl RegistryPoller {
 
             let pattern = annotations.get(annotations::PATTERN).cloned();
 
+            // Parse per-resource polling interval (overrides global interval)
+            let polling_interval = annotations
+                .get(annotations::POLLING_INTERVAL)
+                .and_then(|v| v.parse::<u64>().ok());
+
             debug!(
                 "Processing deployment {}/{} with policy {:?}",
                 metadata
@@ -263,6 +327,7 @@ impl RegistryPoller {
                                     .namespace
                                     .clone()
                                     .unwrap_or_else(|| "default".to_string()),
+                                polling_interval,
                             });
                         }
                     }
@@ -580,6 +645,11 @@ impl RegistryPoller {
 
             let pattern = annotations.get(annotations::PATTERN).cloned();
 
+            // Parse per-resource polling interval (overrides global interval)
+            let polling_interval = annotations
+                .get(annotations::POLLING_INTERVAL)
+                .and_then(|v| v.parse::<u64>().ok());
+
             // Get chart information from HelmRelease spec
             let chart_name = &helm_release.spec.chart.spec.chart;
             let source_ref = &helm_release.spec.chart.spec.source_ref;
@@ -656,6 +726,7 @@ impl RegistryPoller {
                     pattern,
                     namespace,
                     release_name,
+                    polling_interval,
                 });
             }
         }
