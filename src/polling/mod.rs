@@ -3,9 +3,9 @@ mod auth;
 use self::auth::AuthManager;
 use crate::metrics::{
     POLLING_CYCLES_TOTAL, POLLING_HELM_CHARTS_CHECKED, POLLING_HELM_NEW_VERSIONS_FOUND,
-    POLLING_IMAGES_CHECKED, POLLING_NEW_TAGS_FOUND,
+    POLLING_IMAGES_CHECKED, POLLING_NEW_TAGS_FOUND, POLLING_RESOURCES_FILTERED,
 };
-use crate::models::policy::{ResourcePolicy, UpdatePolicy, annotations};
+use crate::models::policy::{EventSource, ResourcePolicy, UpdatePolicy, annotations};
 use crate::models::webhook::{ChartPushEvent, ImagePushEvent};
 use crate::models::{HelmRelease, HelmRepository};
 use crate::policy::PolicyEngine;
@@ -212,6 +212,26 @@ impl RegistryPoller {
                     continue;
                 },
             };
+
+            // Check event source - only poll if event_source is "polling" or "both"
+            let event_source = annotations
+                .get(annotations::EVENT_SOURCE)
+                .and_then(|v| v.parse::<EventSource>().ok())
+                .unwrap_or_default(); // defaults to Webhook
+
+            if event_source != EventSource::Polling && event_source != EventSource::Both {
+                debug!(
+                    "Skipping deployment {}/{} - event source is {:?}, not polling",
+                    metadata
+                        .namespace
+                        .as_ref()
+                        .unwrap_or(&"default".to_string()),
+                    metadata.name.as_ref().unwrap_or(&"unknown".to_string()),
+                    event_source
+                );
+                POLLING_RESOURCES_FILTERED.inc();
+                continue;
+            }
 
             let pattern = annotations.get(annotations::PATTERN).cloned();
 
@@ -534,7 +554,12 @@ impl RegistryPoller {
                 },
             };
 
-            let pattern = annotations.get(annotations::PATTERN).cloned();
+            // Check event source - only poll if event_source is "polling" or "both"
+            let event_source = annotations
+                .get(annotations::EVENT_SOURCE)
+                .and_then(|v| v.parse::<EventSource>().ok())
+                .unwrap_or_default(); // defaults to Webhook
+
             let namespace = metadata
                 .namespace
                 .clone()
@@ -543,6 +568,17 @@ impl RegistryPoller {
                 .name
                 .clone()
                 .unwrap_or_else(|| "unknown".to_string());
+
+            if event_source != EventSource::Polling && event_source != EventSource::Both {
+                debug!(
+                    "Skipping HelmRelease {}/{} - event source is {:?}, not polling",
+                    namespace, release_name, event_source
+                );
+                POLLING_RESOURCES_FILTERED.inc();
+                continue;
+            }
+
+            let pattern = annotations.get(annotations::PATTERN).cloned();
 
             // Get chart information from HelmRelease spec
             let chart_name = &helm_release.spec.chart.spec.chart;
