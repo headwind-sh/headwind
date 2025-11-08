@@ -622,38 +622,34 @@ async fn execute_deployment_update(
     Ok(())
 }
 
-async fn execute_helmrelease_update(
+/// Update a HelmRelease chart version directly
+/// This function is public so it can be used both from the approval workflow
+/// and from direct updates in the Helm controller
+pub async fn update_helmrelease_chart_version(
     client: &Client,
-    update_request: &UpdateRequest,
-    _update_request_name: Option<String>,
-    _approved_by: Option<String>,
+    namespace: &str,
+    name: &str,
+    chart_name: &str,
+    current_version: &str,
+    new_version: &str,
 ) -> Result<()> {
     use crate::models::HelmRelease;
     use kube::api::{Patch, PatchParams};
     use serde_json::json;
 
-    let spec = &update_request.spec;
-    let target = &spec.target_ref;
-
     info!(
-        "Executing Helm chart update for {}/{} in namespace {}",
-        target.kind, target.name, target.namespace
+        "Executing Helm chart update for HelmRelease {}/{} in namespace {}",
+        name, chart_name, namespace
     );
 
-    // Extract chart name and new version from the new_image field (format: "chart:version")
-    let (chart_name, new_version) = spec
-        .new_image
-        .split_once(':')
-        .ok_or_else(|| anyhow::anyhow!("Invalid chart version format in new_image"))?;
-
     debug!(
-        "Updating HelmRelease {}/{} chart {} to version {}",
-        target.namespace, target.name, chart_name, new_version
+        "Updating HelmRelease {}/{} chart {} from {} to {}",
+        namespace, name, chart_name, current_version, new_version
     );
 
     // Get the HelmRelease
-    let helm_releases: Api<HelmRelease> = Api::namespaced(client.clone(), &target.namespace);
-    let helm_release = helm_releases.get(&target.name).await?;
+    let helm_releases: Api<HelmRelease> = Api::namespaced(client.clone(), namespace);
+    let helm_release = helm_releases.get(name).await?;
 
     // Verify the chart name matches
     if helm_release.spec.chart.spec.chart != chart_name {
@@ -678,20 +674,20 @@ async fn execute_helmrelease_update(
     // Apply the patch using strategic merge
     let patch_params = PatchParams::default();
     let _patched_release = helm_releases
-        .patch(&target.name, &patch_params, &Patch::Merge(&patch))
+        .patch(name, &patch_params, &Patch::Merge(&patch))
         .await?;
 
     info!(
         "Successfully updated HelmRelease {}/{} to chart version {}",
-        target.namespace, target.name, new_version
+        namespace, name, new_version
     );
 
     // Send success notification
     let deployment_info = crate::notifications::DeploymentInfo {
-        name: target.name.clone(),
-        namespace: target.namespace.clone(),
-        current_image: spec.current_image.clone(),
-        new_image: spec.new_image.clone(),
+        name: name.to_string(),
+        namespace: namespace.to_string(),
+        current_image: format!("{}:{}", chart_name, current_version),
+        new_image: format!("{}:{}", chart_name, new_version),
         container: None,
         resource_kind: Some("HelmRelease".to_string()),
     };
@@ -702,6 +698,38 @@ async fn execute_helmrelease_update(
     crate::metrics::HELM_UPDATES_APPLIED.inc();
 
     Ok(())
+}
+
+async fn execute_helmrelease_update(
+    client: &Client,
+    update_request: &UpdateRequest,
+    _update_request_name: Option<String>,
+    _approved_by: Option<String>,
+) -> Result<()> {
+    let spec = &update_request.spec;
+    let target = &spec.target_ref;
+
+    // Extract chart name and new version from the new_image field (format: "chart:version")
+    let (chart_name, new_version) = spec
+        .new_image
+        .split_once(':')
+        .ok_or_else(|| anyhow::anyhow!("Invalid chart version format in new_image"))?;
+
+    let (_, current_version) = spec
+        .current_image
+        .split_once(':')
+        .ok_or_else(|| anyhow::anyhow!("Invalid chart version format in current_image"))?;
+
+    // Call the reusable function
+    update_helmrelease_chart_version(
+        client,
+        &target.namespace,
+        &target.name,
+        chart_name,
+        current_version,
+        new_version,
+    )
+    .await
 }
 
 async fn execute_statefulset_update(

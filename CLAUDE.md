@@ -689,6 +689,38 @@ Full support for StatefulSet and DaemonSet resources:
 
 **Implementation**: All three workload controllers (Deployment, StatefulSet, DaemonSet) follow identical patterns and share the same annotation schema.
 
+### ✅ 6. **Direct HelmRelease Updates** (COMPLETED)
+Full support for bypassing approval workflow when `headwind.sh/require-approval: "false"`:
+
+```rust
+// In src/controller/helm.rs::reconcile()
+// ✅ Checks resource_policy.require_approval flag
+// ✅ Creates UpdateRequest CRD when approval is required (true)
+// ✅ Performs direct update when approval not required (false)
+// ✅ Enforces minimum update interval (headwind.sh/min-update-interval)
+// ✅ Updates headwind.sh/last-update annotation after direct updates
+// ✅ Increments UPDATES_SKIPPED_INTERVAL metric when throttled
+// ✅ Calls update_helmrelease_chart_version() for direct updates
+
+// In src/controller/helm.rs::handle_chart_event()
+// ✅ Same direct update logic for webhook/polling events
+// ✅ Feature parity between reconcile() and event handling
+```
+
+**Implementation Details**:
+- **Direct update path**: When `require-approval: "false"`, the reconcile function checks the minimum update interval, then calls `update_helmrelease_chart_version()` and updates the last-update annotation
+- **Minimum interval enforcement**: Uses `headwind.sh/last-update` and `headwind.sh/min-update-interval` annotations to prevent update spam
+- **Repository type support**: Tested and working with both OCI and HTTP Helm repositories
+- **Metrics tracking**: Increments `UPDATES_SKIPPED_INTERVAL` when updates are throttled
+
+**Testing**:
+- ✅ OCI Helm charts: busybox-direct (1.0.0 → 1.37.0) via jfrog-oci repository
+- ✅ HTTP Helm charts: busybox-http-direct (1.0.0 → 1.1.0) via jfrog-http repository
+- ✅ Last-update annotation correctly set after both update types
+- ✅ Minimum interval enforcement verified
+
+**Bug Fix**: Issue #49 - reconcile() function was missing direct update logic that handle_chart_event() already had. Now both code paths have identical behavior.
+
 ### High Priority (Next)
 1. Add integration tests with real cluster
 2. Comprehensive end-to-end testing
@@ -746,5 +778,5 @@ For questions about this codebase, open an issue on GitHub with the `question` l
 
 ---
 
-Last Updated: 2025-11-07
-Version: 0.2.0-alpha (Core functionality complete, StatefulSet/DaemonSet/Helm support added, awaiting integration tests)
+Last Updated: 2025-11-08
+Version: 0.2.0-alpha (Core functionality complete, StatefulSet/DaemonSet/Helm support added with direct updates, awaiting integration tests)

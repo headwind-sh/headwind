@@ -183,7 +183,9 @@ spec:
 2. **Automatically queries the referenced HelmRepository for available chart versions**
 3. Uses the PolicyEngine to find the best matching version based on your policy
 4. Compares discovered versions with `status.lastAttemptedRevision` or `spec.chart.spec.version`
-5. Creates an UpdateRequest CRD if a new version is approved by policy
+5. Either:
+   - Creates an UpdateRequest CRD if `require-approval: "true"` (default)
+   - Applies the update directly if `require-approval: "false"` (respects `min-update-interval`)
 6. Sends notifications (Slack, Teams, webhooks) about the update
 
 **Configuration:**

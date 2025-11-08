@@ -192,45 +192,134 @@ async fn reconcile(
                     namespace, name, base_version, new_version
                 );
 
-                // Create and persist UpdateRequest
-                match create_update_request(
-                    ctx.client.clone(),
-                    &namespace,
-                    &name,
-                    chart_name,
-                    base_version,
-                    &new_version,
-                    &resource_policy,
-                )
-                .await
-                {
-                    Ok(update_request_name) => {
-                        info!(
-                            "Created update request {} for HelmRelease {}/{}",
-                            update_request_name, namespace, name
-                        );
+                // Check if approval is required
+                if resource_policy.require_approval {
+                    // Create and persist UpdateRequest
+                    match create_update_request(
+                        ctx.client.clone(),
+                        &namespace,
+                        &name,
+                        chart_name,
+                        base_version,
+                        &new_version,
+                        &resource_policy,
+                    )
+                    .await
+                    {
+                        Ok(update_request_name) => {
+                            info!(
+                                "Created update request {} for HelmRelease {}/{}",
+                                update_request_name, namespace, name
+                            );
 
-                        // Send notification for UpdateRequest creation
-                        crate::notifications::notify_update_request_created(
-                            crate::notifications::DeploymentInfo {
-                                name: name.clone(),
-                                namespace: namespace.clone(),
-                                current_image: format!("{}:{}", chart_name, base_version),
-                                new_image: format!("{}:{}", chart_name, new_version),
-                                container: None,
-                                resource_kind: Some("HelmRelease".to_string()),
-                            },
-                            format!("{:?}", resource_policy.policy),
-                            resource_policy.require_approval,
-                            update_request_name,
-                        );
-                    },
-                    Err(e) => {
-                        warn!(
-                            "Failed to create UpdateRequest for HelmRelease {}/{}: {}",
-                            namespace, name, e
-                        );
-                    },
+                            // Send notification for UpdateRequest creation
+                            crate::notifications::notify_update_request_created(
+                                crate::notifications::DeploymentInfo {
+                                    name: name.clone(),
+                                    namespace: namespace.clone(),
+                                    current_image: format!("{}:{}", chart_name, base_version),
+                                    new_image: format!("{}:{}", chart_name, new_version),
+                                    container: None,
+                                    resource_kind: Some("HelmRelease".to_string()),
+                                },
+                                format!("{:?}", resource_policy.policy),
+                                resource_policy.require_approval,
+                                update_request_name,
+                            );
+                        },
+                        Err(e) => {
+                            warn!(
+                                "Failed to create UpdateRequest for HelmRelease {}/{}: {}",
+                                namespace, name, e
+                            );
+                        },
+                    }
+                } else {
+                    info!(
+                        "Approval not required, updating HelmRelease {}/{} directly",
+                        namespace, name
+                    );
+
+                    // Check minimum update interval
+                    let min_update_interval = resource_policy.min_update_interval.unwrap_or(300);
+                    if let Some(annotations) = &helm_release.metadata.annotations
+                        && let Some(last_update_str) =
+                            annotations.get(crate::models::policy::annotations::LAST_UPDATE)
+                        && let Ok(last_update) =
+                            chrono::DateTime::parse_from_rfc3339(last_update_str)
+                    {
+                        let now = chrono::Utc::now();
+                        let elapsed =
+                            now.signed_duration_since(last_update.with_timezone(&chrono::Utc));
+                        let min_interval = chrono::Duration::seconds(min_update_interval as i64);
+
+                        if elapsed < min_interval {
+                            let remaining = min_interval - elapsed;
+                            info!(
+                                "Skipping update for HelmRelease {}/{}: minimum interval not reached ({} < {}s), {} seconds remaining",
+                                namespace,
+                                name,
+                                elapsed.num_seconds(),
+                                min_update_interval,
+                                remaining.num_seconds()
+                            );
+                            crate::metrics::UPDATES_SKIPPED_INTERVAL.inc();
+                            return Ok(Action::requeue(Duration::from_secs(
+                                min_update_interval as u64,
+                            )));
+                        }
+                    }
+
+                    // Perform the direct update
+                    match crate::approval::update_helmrelease_chart_version(
+                        &ctx.client,
+                        &namespace,
+                        &name,
+                        chart_name,
+                        base_version,
+                        &new_version,
+                    )
+                    .await
+                    {
+                        Ok(_) => {
+                            // Update the last-update annotation on the HelmRelease
+                            use crate::models::HelmRelease;
+                            use kube::api::{Api, Patch, PatchParams};
+                            use serde_json::json;
+
+                            let helm_api: Api<HelmRelease> =
+                                Api::namespaced(ctx.client.clone(), &namespace);
+                            let now = chrono::Utc::now();
+                            let patch = json!({
+                                "metadata": {
+                                    "annotations": {
+                                        crate::models::policy::annotations::LAST_UPDATE: now.to_rfc3339()
+                                    }
+                                }
+                            });
+
+                            if let Err(e) = helm_api
+                                .patch(&name, &PatchParams::default(), &Patch::Merge(&patch))
+                                .await
+                            {
+                                warn!(
+                                    "Failed to update last-update annotation for HelmRelease {}/{}: {}",
+                                    namespace, name, e
+                                );
+                            } else {
+                                info!(
+                                    "Successfully updated HelmRelease {}/{} to version {} and recorded update timestamp",
+                                    namespace, name, new_version
+                                );
+                            }
+                        },
+                        Err(e) => {
+                            warn!(
+                                "Failed to directly update HelmRelease {}/{}: {}",
+                                namespace, name, e
+                            );
+                        },
+                    }
                 }
             },
             Ok(false) => {
@@ -711,8 +800,65 @@ pub async fn handle_chart_update(
             "Approval not required, updating HelmRelease {}/{} directly",
             namespace, name
         );
-        // TODO: Implement direct update logic
-        warn!("Direct HelmRelease updates without approval not yet implemented");
+
+        // Check minimum update interval
+        if let Some(annotations) = &helm_release.metadata.annotations
+            && let Some(last_update_str) = annotations.get(annotations::LAST_UPDATE)
+            && let Ok(last_update) = chrono::DateTime::parse_from_rfc3339(last_update_str)
+        {
+            let now = chrono::Utc::now();
+            let elapsed = now.signed_duration_since(last_update.with_timezone(&chrono::Utc));
+            let min_interval = chrono::Duration::seconds(min_update_interval as i64);
+
+            if elapsed < min_interval {
+                let remaining = min_interval - elapsed;
+                info!(
+                    "Skipping update for HelmRelease {}/{}: minimum interval not reached ({} < {}s), {} seconds remaining",
+                    namespace,
+                    name,
+                    elapsed.num_seconds(),
+                    min_update_interval,
+                    remaining.num_seconds()
+                );
+                crate::metrics::UPDATES_SKIPPED_INTERVAL.inc();
+                return Ok(());
+            }
+        }
+
+        // Perform the direct update
+        crate::approval::update_helmrelease_chart_version(
+            client,
+            &namespace,
+            &name,
+            chart_name,
+            current_version,
+            new_version,
+        )
+        .await?;
+
+        // Update the last-update annotation on the HelmRelease
+        use crate::models::HelmRelease;
+        use kube::api::{Patch, PatchParams};
+        use serde_json::json;
+
+        let helm_api: Api<HelmRelease> = Api::namespaced(client.clone(), &namespace);
+        let now = chrono::Utc::now();
+        let patch = json!({
+            "metadata": {
+                "annotations": {
+                    annotations::LAST_UPDATE: now.to_rfc3339()
+                }
+            }
+        });
+
+        helm_api
+            .patch(&name, &PatchParams::default(), &Patch::Merge(&patch))
+            .await?;
+
+        info!(
+            "Successfully updated HelmRelease {}/{} to version {} and recorded update timestamp",
+            namespace, name, new_version
+        );
     }
 
     Ok(())
