@@ -711,8 +711,65 @@ pub async fn handle_chart_update(
             "Approval not required, updating HelmRelease {}/{} directly",
             namespace, name
         );
-        // TODO: Implement direct update logic
-        warn!("Direct HelmRelease updates without approval not yet implemented");
+
+        // Check minimum update interval
+        if let Some(annotations) = &helm_release.metadata.annotations
+            && let Some(last_update_str) = annotations.get(annotations::LAST_UPDATE)
+            && let Ok(last_update) = chrono::DateTime::parse_from_rfc3339(last_update_str)
+        {
+            let now = chrono::Utc::now();
+            let elapsed = now.signed_duration_since(last_update.with_timezone(&chrono::Utc));
+            let min_interval = chrono::Duration::seconds(min_update_interval as i64);
+
+            if elapsed < min_interval {
+                let remaining = min_interval - elapsed;
+                info!(
+                    "Skipping update for HelmRelease {}/{}: minimum interval not reached ({} < {}s), {} seconds remaining",
+                    namespace,
+                    name,
+                    elapsed.num_seconds(),
+                    min_update_interval,
+                    remaining.num_seconds()
+                );
+                crate::metrics::UPDATES_SKIPPED_INTERVAL.inc();
+                return Ok(());
+            }
+        }
+
+        // Perform the direct update
+        crate::approval::update_helmrelease_chart_version(
+            client,
+            &namespace,
+            &name,
+            chart_name,
+            current_version,
+            new_version,
+        )
+        .await?;
+
+        // Update the last-update annotation on the HelmRelease
+        use crate::models::HelmRelease;
+        use kube::api::{Patch, PatchParams};
+        use serde_json::json;
+
+        let helm_api: Api<HelmRelease> = Api::namespaced(client.clone(), &namespace);
+        let now = chrono::Utc::now();
+        let patch = json!({
+            "metadata": {
+                "annotations": {
+                    annotations::LAST_UPDATE: now.to_rfc3339()
+                }
+            }
+        });
+
+        helm_api
+            .patch(&name, &PatchParams::default(), &Patch::Merge(&patch))
+            .await?;
+
+        info!(
+            "Successfully updated HelmRelease {}/{} to version {} and recorded update timestamp",
+            namespace, name, new_version
+        );
     }
 
     Ok(())
