@@ -3,10 +3,10 @@ import Layout from '@theme/Layout';
 
 export default function Home() {
   useEffect(() => {
-    // Redirect to the introduction page immediately
+    // Redirect to the documentation root immediately
     // Using window.location.replace for better compatibility with GitHub Pages
     if (typeof window !== 'undefined') {
-      window.location.replace('/docs/intro');
+      window.location.replace('/docs');
     }
   }, []);
 
