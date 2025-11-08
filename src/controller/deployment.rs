@@ -1,4 +1,4 @@
-use crate::metrics::{DEPLOYMENTS_WATCHED, RECONCILE_DURATION, RECONCILE_ERRORS};
+use crate::metrics::{RECONCILE_DURATION, RECONCILE_ERRORS};
 use crate::models::{
     ResourcePolicy, TargetRef, UpdatePolicy, UpdatePolicyType, UpdateRequest, UpdateRequestSpec,
     UpdateType, annotations,
@@ -142,9 +142,6 @@ async fn reconcile(
         "Deployment {}/{} has policy {:?}",
         namespace, name, policy.policy
     );
-
-    // Track this deployment in metrics
-    DEPLOYMENTS_WATCHED.inc();
 
     // Process each container in the deployment
     let spec = deployment

@@ -1,9 +1,9 @@
 use axum::{
-    extract::Path,
+    extract::{Path, Query},
     http::StatusCode,
     response::{IntoResponse, Json},
 };
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
 use kube::{Api, Client};
 use tracing::{error, info};
 
@@ -496,7 +496,10 @@ pub async fn get_metrics_data() -> impl IntoResponse {
 }
 
 /// Get metrics time series for charts
-pub async fn get_metrics_timeseries(Path(metric_name): Path<String>) -> impl IntoResponse {
+pub async fn get_metrics_timeseries(
+    Path(metric_name): Path<String>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> impl IntoResponse {
     use crate::metrics::client::create_metrics_client;
 
     info!("Fetching time series for metric: {}", metric_name);
@@ -544,21 +547,133 @@ pub async fn get_metrics_timeseries(Path(metric_name): Path<String>) -> impl Int
     )
     .await;
 
-    // Query last 24 hours
+    // Parse time range from query parameter (default: 6h)
+    let time_range = params.get("range").map(|s| s.as_str()).unwrap_or("6h");
     let end = Utc::now();
-    let start = end - Duration::hours(24);
+    let (start, step) = match time_range {
+        "1h" => (end - Duration::hours(1), "1m"),
+        "6h" => (end - Duration::hours(6), "5m"),
+        "24h" => (end - Duration::hours(24), "10m"),
+        "7d" => (end - Duration::days(7), "1h"),
+        "30d" => (end - Duration::days(30), "6h"),
+        _ => (end - Duration::hours(6), "5m"), // default to 6h
+    };
 
     match metrics_client
-        .query_range(&metric_name, start, end, "5m")
+        .query_range(&metric_name, start, end, step)
         .await
     {
-        Ok(points) => (StatusCode::OK, Json(points)).into_response(),
+        Ok(points) => {
+            // Fill in missing time intervals with zeros for better visualization
+            let filled_points = fill_missing_intervals(points, start, end, time_range);
+            (StatusCode::OK, Json(filled_points)).into_response()
+        },
         Err(e) => {
             error!("Failed to query metric time series {}: {}", metric_name, e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({
                     "error": format!("Failed to query metric: {}", e)
+                })),
+            )
+                .into_response()
+        },
+    }
+}
+
+/// Fill in missing time intervals with zero values for better chart visualization
+fn fill_missing_intervals(
+    points: Vec<crate::metrics::client::MetricPoint>,
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    time_range: &str,
+) -> Vec<crate::metrics::client::MetricPoint> {
+    use crate::metrics::client::MetricPoint;
+    use std::collections::HashMap;
+
+    // For short ranges (1h, 6h, 24h), return as-is to avoid too many data points
+    if time_range == "1h" || time_range == "6h" || time_range == "24h" {
+        return points;
+    }
+
+    // For 7d and 30d, generate daily intervals
+    let interval = Duration::days(1);
+
+    // Create a map of existing data points by date (ignoring time)
+    let mut data_map: HashMap<String, f64> = HashMap::new();
+    for point in &points {
+        let date_key = point.timestamp.format("%Y-%m-%d").to_string();
+        // Sum values for the same day (or take max, depending on metric type)
+        data_map
+            .entry(date_key)
+            .and_modify(|v| *v = v.max(point.value))
+            .or_insert(point.value);
+    }
+
+    // Generate complete time series with zeros for missing days
+    let mut filled = Vec::new();
+    let mut current = start;
+
+    while current <= end {
+        let date_key = current.format("%Y-%m-%d").to_string();
+        let value = data_map.get(&date_key).copied().unwrap_or(0.0);
+
+        filled.push(MetricPoint {
+            timestamp: current,
+            value,
+        });
+
+        current += interval;
+    }
+
+    filled
+}
+
+/// List all UpdateRequest CRDs (for update counts in observability dashboard)
+pub async fn list_update_requests() -> impl IntoResponse {
+    let client = match Client::try_default().await {
+        Ok(c) => c,
+        Err(e) => {
+            error!("Failed to create Kubernetes client: {}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": "Failed to connect to Kubernetes API"
+                })),
+            )
+                .into_response();
+        },
+    };
+
+    // Query all UpdateRequests across all namespaces
+    let update_requests: Api<UpdateRequest> = Api::all(client);
+
+    match update_requests.list(&Default::default()).await {
+        Ok(list) => {
+            // Convert to a simpler format for the frontend
+            let updates: Vec<serde_json::Value> = list
+                .items
+                .iter()
+                .map(|ur| {
+                    serde_json::json!({
+                        "namespace": ur.metadata.namespace.as_ref().unwrap_or(&"default".to_string()),
+                        "name": ur.metadata.name.as_ref().unwrap_or(&"unknown".to_string()),
+                        "status": ur.status.as_ref().map(|s| serde_json::json!({
+                            "phase": format!("{:?}", s.phase),
+                            "approvedBy": s.approved_by.clone(),
+                        })),
+                    })
+                })
+                .collect();
+
+            (StatusCode::OK, Json(updates)).into_response()
+        },
+        Err(e) => {
+            error!("Failed to list UpdateRequests: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": format!("Failed to list UpdateRequests: {}", e)
                 })),
             )
                 .into_response()

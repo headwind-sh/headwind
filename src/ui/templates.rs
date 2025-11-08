@@ -1174,7 +1174,7 @@ pub fn observability() -> Markup {
             }
 
             // Key metrics cards
-            div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6" {
+            div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6" {
                 // Updates Pending
                 div class="card bg-base-100 shadow-xl" {
                     div class="card-body" {
@@ -1194,6 +1194,13 @@ pub fn observability() -> Markup {
                     div class="card-body" {
                         h2 class="card-title text-sm" { "Updates Applied" }
                         p class="text-4xl font-bold text-primary" id="metric-updates-applied" { "0" }
+                    }
+                }
+                // Updates Rejected
+                div class="card bg-base-100 shadow-xl" {
+                    div class="card-body" {
+                        h2 class="card-title text-sm" { "Updates Rejected" }
+                        p class="text-4xl font-bold text-secondary" id="metric-updates-rejected" { "0" }
                     }
                 }
                 // Updates Failed
@@ -1230,6 +1237,20 @@ pub fn observability() -> Markup {
                 }
             }
 
+            // Timeframe selector
+            div class="card bg-base-100 shadow-xl mb-6" {
+                div class="card-body" {
+                    h2 class="card-title text-xl mb-4" { "Time Range" }
+                    div class="btn-group" {
+                        button class="btn btn-sm" onclick="setTimeRange('1h')" { "1 Hour" }
+                        button class="btn btn-sm btn-active" onclick="setTimeRange('6h')" { "6 Hours" }
+                        button class="btn btn-sm" onclick="setTimeRange('24h')" { "24 Hours" }
+                        button class="btn btn-sm" onclick="setTimeRange('7d')" { "7 Days" }
+                        button class="btn btn-sm" onclick="setTimeRange('30d')" { "30 Days" }
+                    }
+                }
+            }
+
             // Time-series charts
             div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6" {
                 // Updates over time chart
@@ -1247,6 +1268,58 @@ pub fn observability() -> Markup {
                     }
                 }
             }
+
+            // Additional metrics charts
+            div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6" {
+                // Rollback metrics chart
+                div class="card bg-base-100 shadow-xl" {
+                    div class="card-body" {
+                        h2 class="card-title text-xl mb-4" { "Rollback Operations" }
+                        canvas id="rollback-chart" {}
+                    }
+                }
+                // Polling metrics chart
+                div class="card bg-base-100 shadow-xl" {
+                    div class="card-body" {
+                        h2 class="card-title text-xl mb-4" { "Registry Polling" }
+                        canvas id="polling-chart" {}
+                    }
+                }
+            }
+
+            div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6" {
+                // Helm metrics chart
+                div class="card bg-base-100 shadow-xl" {
+                    div class="card-body" {
+                        h2 class="card-title text-xl mb-4" { "Helm Operations" }
+                        canvas id="helm-chart" {}
+                    }
+                }
+                // Notification metrics chart
+                div class="card bg-base-100 shadow-xl" {
+                    div class="card-body" {
+                        h2 class="card-title text-xl mb-4" { "Notifications" }
+                        canvas id="notifications-chart" {}
+                    }
+                }
+            }
+
+            div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6" {
+                // Webhook events chart
+                div class="card bg-base-100 shadow-xl" {
+                    div class="card-body" {
+                        h2 class="card-title text-xl mb-4" { "Webhook Events" }
+                        canvas id="webhook-chart" {}
+                    }
+                }
+                // Reconciliation errors chart
+                div class="card bg-base-100 shadow-xl" {
+                    div class="card-body" {
+                        h2 class="card-title text-xl mb-4" { "Controller Errors" }
+                        canvas id="errors-chart" {}
+                    }
+                }
+            }
         }
 
         // JavaScript for loading metrics
@@ -1260,6 +1333,45 @@ pub fn observability() -> Markup {
 
             let updatesChart = null;
             let resourcesChart = null;
+            let rollbackChart = null;
+            let pollingChart = null;
+            let helmChart = null;
+            let notificationsChart = null;
+            let webhookChart = null;
+            let errorsChart = null;
+            let currentTimeRange = '6h';
+
+            // Helper function to format timestamps for chart labels based on timeframe
+            function formatTimestamp(timestamp, timeRange) {
+                const date = new Date(timestamp);
+                const now = new Date();
+                const diffMs = now - date;
+                const diffHours = diffMs / (1000 * 60 * 60);
+                const diffDays = diffMs / (1000 * 60 * 60 * 24);
+
+                // For 7d and 30d ranges, show date only
+                if (timeRange === '7d' || timeRange === '30d') {
+                    return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+                }
+                // For data within the last 24 hours, show time only
+                if (diffHours < 24) {
+                    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                }
+                // For older data in short ranges, show date and time
+                return date.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' +
+                       date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            }
+
+            function setTimeRange(range) {
+                currentTimeRange = range;
+                // Update button states
+                document.querySelectorAll('.btn-group .btn').forEach(btn => {
+                    btn.classList.remove('btn-active');
+                });
+                event.target.classList.add('btn-active');
+                // Reload charts with new timeframe
+                loadCharts();
+            }
 
             async function loadMetrics() {
                 try {
@@ -1269,24 +1381,23 @@ pub fn observability() -> Markup {
                     // Update backend type
                     document.getElementById('backend-type').textContent = metrics.backend || 'Unknown';
 
-                    // Update metric values
-                    const metricIds = [
-                        'updates_pending',
-                        'updates_approved',
-                        'updates_applied',
-                        'updates_failed',
+                    // Update resource metric values from Prometheus
+                    const resourceMetricIds = [
                         'deployments_watched',
                         'statefulsets_watched',
                         'daemonsets_watched',
                         'helm_releases_watched'
                     ];
 
-                    metricIds.forEach(metricId => {
+                    resourceMetricIds.forEach(metricId => {
                         const elem = document.getElementById('metric-' + metricId.replace(/_/g, '-'));
                         if (elem && metrics[metricId] !== undefined) {
                             elem.textContent = Math.round(metrics[metricId]);
                         }
                     });
+
+                    // Load UpdateRequest counts from API (these are persistent, not reset on restart)
+                    await loadUpdateCounts();
 
                     // Show dashboard, hide loading
                     document.getElementById('metrics-loading').classList.add('hidden');
@@ -1301,21 +1412,111 @@ pub fn observability() -> Markup {
                 }
             }
 
+            async function loadUpdateCounts() {
+                try {
+                    // Fetch all UpdateRequests
+                    const response = await fetch('/api/v1/updates');
+                    const updates = await response.json();
+
+                    // Count by phase
+                    const counts = {
+                        pending: 0,
+                        approved: 0,
+                        applied: 0,
+                        rejected: 0,
+                        failed: 0
+                    };
+
+                    updates.forEach(update => {
+                        let phase = update.status?.phase?.toLowerCase() || 'pending';
+
+                        // Count approved separately (any update with approvedBy field set)
+                        if (update.status?.approvedBy) {
+                            counts.approved++;
+                        }
+
+                        // Map "completed" to "applied" for display
+                        if (phase === 'completed') {
+                            phase = 'applied';
+                        }
+
+                        // Count pending, applied, rejected, failed by phase
+                        if (phase === 'pending' || phase === 'applied' || phase === 'rejected' || phase === 'failed') {
+                            counts[phase]++;
+                        }
+                    });
+
+                    // Update the cards
+                    document.getElementById('metric-updates-pending').textContent = counts.pending;
+                    document.getElementById('metric-updates-approved').textContent = counts.approved;
+                    document.getElementById('metric-updates-applied').textContent = counts.applied;
+                    document.getElementById('metric-updates-rejected').textContent = counts.rejected;
+                    document.getElementById('metric-updates-failed').textContent = counts.failed;
+                } catch (error) {
+                    console.error('Failed to load update counts:', error);
+                }
+            }
+
             async function loadCharts() {
                 try {
+                    const timeParam = `?range=${currentTimeRange}`;
+
                     // Load updates time series
                     const updatesData = await Promise.all([
-                        fetch('/api/v1/metrics/timeseries/headwind_updates_approved_total').then(r => r.json()),
-                        fetch('/api/v1/metrics/timeseries/headwind_updates_applied_total').then(r => r.json()),
-                        fetch('/api/v1/metrics/timeseries/headwind_updates_failed_total').then(r => r.json())
+                        fetch('/api/v1/metrics/timeseries/headwind_updates_approved_total' + timeParam).then(r => r.json()),
+                        fetch('/api/v1/metrics/timeseries/headwind_updates_applied_total' + timeParam).then(r => r.json()),
+                        fetch('/api/v1/metrics/timeseries/headwind_updates_failed_total' + timeParam).then(r => r.json()),
+                        fetch('/api/v1/metrics/timeseries/headwind_updates_rejected_total' + timeParam).then(r => r.json())
                     ]);
 
                     // Load resources time series
                     const resourcesData = await Promise.all([
-                        fetch('/api/v1/metrics/timeseries/headwind_deployments_watched').then(r => r.json()),
-                        fetch('/api/v1/metrics/timeseries/headwind_statefulsets_watched').then(r => r.json()),
-                        fetch('/api/v1/metrics/timeseries/headwind_daemonsets_watched').then(r => r.json()),
-                        fetch('/api/v1/metrics/timeseries/headwind_helm_releases_watched').then(r => r.json())
+                        fetch('/api/v1/metrics/timeseries/headwind_deployments_watched' + timeParam).then(r => r.json()),
+                        fetch('/api/v1/metrics/timeseries/headwind_statefulsets_watched' + timeParam).then(r => r.json()),
+                        fetch('/api/v1/metrics/timeseries/headwind_daemonsets_watched' + timeParam).then(r => r.json()),
+                        fetch('/api/v1/metrics/timeseries/headwind_helm_releases_watched' + timeParam).then(r => r.json())
+                    ]);
+
+                    // Load rollback metrics
+                    const rollbackData = await Promise.all([
+                        fetch('/api/v1/metrics/timeseries/headwind_rollbacks_total' + timeParam).then(r => r.json()),
+                        fetch('/api/v1/metrics/timeseries/headwind_rollbacks_automatic_total' + timeParam).then(r => r.json()),
+                        fetch('/api/v1/metrics/timeseries/headwind_rollbacks_manual_total' + timeParam).then(r => r.json()),
+                        fetch('/api/v1/metrics/timeseries/headwind_rollbacks_failed_total' + timeParam).then(r => r.json())
+                    ]);
+
+                    // Load polling metrics
+                    const pollingData = await Promise.all([
+                        fetch('/api/v1/metrics/timeseries/headwind_polling_cycles_total' + timeParam).then(r => r.json()),
+                        fetch('/api/v1/metrics/timeseries/headwind_polling_new_tags_found_total' + timeParam).then(r => r.json()),
+                        fetch('/api/v1/metrics/timeseries/headwind_polling_errors_total' + timeParam).then(r => r.json())
+                    ]);
+
+                    // Load Helm metrics
+                    const helmData = await Promise.all([
+                        fetch('/api/v1/metrics/timeseries/headwind_helm_updates_found_total' + timeParam).then(r => r.json()),
+                        fetch('/api/v1/metrics/timeseries/headwind_helm_updates_applied_total' + timeParam).then(r => r.json()),
+                        fetch('/api/v1/metrics/timeseries/headwind_helm_repository_queries_total' + timeParam).then(r => r.json()),
+                        fetch('/api/v1/metrics/timeseries/headwind_helm_repository_errors_total' + timeParam).then(r => r.json())
+                    ]);
+
+                    // Load notification metrics
+                    const notificationData = await Promise.all([
+                        fetch('/api/v1/metrics/timeseries/headwind_notifications_sent_total' + timeParam).then(r => r.json()),
+                        fetch('/api/v1/metrics/timeseries/headwind_notifications_failed_total' + timeParam).then(r => r.json()),
+                        fetch('/api/v1/metrics/timeseries/headwind_notifications_slack_sent_total' + timeParam).then(r => r.json()),
+                        fetch('/api/v1/metrics/timeseries/headwind_notifications_teams_sent_total' + timeParam).then(r => r.json())
+                    ]);
+
+                    // Load webhook metrics
+                    const webhookData = await Promise.all([
+                        fetch('/api/v1/metrics/timeseries/headwind_webhook_events_total' + timeParam).then(r => r.json()),
+                        fetch('/api/v1/metrics/timeseries/headwind_webhook_events_processed' + timeParam).then(r => r.json())
+                    ]);
+
+                    // Load error metrics
+                    const errorData = await Promise.all([
+                        fetch('/api/v1/metrics/timeseries/headwind_reconcile_errors_total' + timeParam).then(r => r.json())
                     ]);
 
                     // Create updates chart
@@ -1324,7 +1525,7 @@ pub fn observability() -> Markup {
                     updatesChart = new Chart(updatesCtx, {
                         type: 'line',
                         data: {
-                            labels: updatesData[0].map(p => new Date(p.timestamp).toLocaleTimeString()),
+                            labels: updatesData[0].map(p => formatTimestamp(p.timestamp, currentTimeRange)),
                             datasets: [
                                 {
                                     label: 'Approved',
@@ -1345,6 +1546,13 @@ pub fn observability() -> Markup {
                                     data: updatesData[2].map(p => p.value),
                                     borderColor: 'rgb(255, 99, 132)',
                                     backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                                    tension: 0.4
+                                },
+                                {
+                                    label: 'Rejected',
+                                    data: updatesData[3].map(p => p.value),
+                                    borderColor: 'rgb(255, 159, 64)',
+                                    backgroundColor: 'rgba(255, 159, 64, 0.1)',
                                     tension: 0.4
                                 }
                             ]
@@ -1371,7 +1579,7 @@ pub fn observability() -> Markup {
                     resourcesChart = new Chart(resourcesCtx, {
                         type: 'line',
                         data: {
-                            labels: resourcesData[0].map(p => new Date(p.timestamp).toLocaleTimeString()),
+                            labels: resourcesData[0].map(p => formatTimestamp(p.timestamp, currentTimeRange)),
                             datasets: [
                                 {
                                     label: 'Deployments',
@@ -1416,6 +1624,240 @@ pub fn observability() -> Markup {
                                     beginAtZero: true
                                 }
                             }
+                        }
+                    });
+
+                    // Create rollback chart
+                    if (rollbackChart) rollbackChart.destroy();
+                    const rollbackCtx = document.getElementById('rollback-chart').getContext('2d');
+                    rollbackChart = new Chart(rollbackCtx, {
+                        type: 'line',
+                        data: {
+                            labels: rollbackData[0].map(p => formatTimestamp(p.timestamp, currentTimeRange)),
+                            datasets: [
+                                {
+                                    label: 'Total Rollbacks',
+                                    data: rollbackData[0].map(p => p.value),
+                                    borderColor: 'rgb(153, 102, 255)',
+                                    backgroundColor: 'rgba(153, 102, 255, 0.1)',
+                                    tension: 0.4
+                                },
+                                {
+                                    label: 'Automatic',
+                                    data: rollbackData[1].map(p => p.value),
+                                    borderColor: 'rgb(54, 162, 235)',
+                                    backgroundColor: 'rgba(54, 162, 235, 0.1)',
+                                    tension: 0.4
+                                },
+                                {
+                                    label: 'Manual',
+                                    data: rollbackData[2].map(p => p.value),
+                                    borderColor: 'rgb(75, 192, 192)',
+                                    backgroundColor: 'rgba(75, 192, 192, 0.1)',
+                                    tension: 0.4
+                                },
+                                {
+                                    label: 'Failed',
+                                    data: rollbackData[3].map(p => p.value),
+                                    borderColor: 'rgb(255, 99, 132)',
+                                    backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                                    tension: 0.4
+                                }
+                            ]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: true,
+                            plugins: { legend: { position: 'bottom' } },
+                            scales: { y: { beginAtZero: true } }
+                        }
+                    });
+
+                    // Create polling chart
+                    if (pollingChart) pollingChart.destroy();
+                    const pollingCtx = document.getElementById('polling-chart').getContext('2d');
+                    pollingChart = new Chart(pollingCtx, {
+                        type: 'line',
+                        data: {
+                            labels: pollingData[0].map(p => formatTimestamp(p.timestamp, currentTimeRange)),
+                            datasets: [
+                                {
+                                    label: 'Poll Cycles',
+                                    data: pollingData[0].map(p => p.value),
+                                    borderColor: 'rgb(54, 162, 235)',
+                                    backgroundColor: 'rgba(54, 162, 235, 0.1)',
+                                    tension: 0.4
+                                },
+                                {
+                                    label: 'New Tags Found',
+                                    data: pollingData[1].map(p => p.value),
+                                    borderColor: 'rgb(75, 192, 192)',
+                                    backgroundColor: 'rgba(75, 192, 192, 0.1)',
+                                    tension: 0.4
+                                },
+                                {
+                                    label: 'Errors',
+                                    data: pollingData[2].map(p => p.value),
+                                    borderColor: 'rgb(255, 99, 132)',
+                                    backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                                    tension: 0.4
+                                }
+                            ]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: true,
+                            plugins: { legend: { position: 'bottom' } },
+                            scales: { y: { beginAtZero: true } }
+                        }
+                    });
+
+                    // Create Helm chart
+                    if (helmChart) helmChart.destroy();
+                    const helmCtx = document.getElementById('helm-chart').getContext('2d');
+                    helmChart = new Chart(helmCtx, {
+                        type: 'line',
+                        data: {
+                            labels: helmData[0].map(p => formatTimestamp(p.timestamp, currentTimeRange)),
+                            datasets: [
+                                {
+                                    label: 'Updates Found',
+                                    data: helmData[0].map(p => p.value),
+                                    borderColor: 'rgb(75, 192, 192)',
+                                    backgroundColor: 'rgba(75, 192, 192, 0.1)',
+                                    tension: 0.4
+                                },
+                                {
+                                    label: 'Updates Applied',
+                                    data: helmData[1].map(p => p.value),
+                                    borderColor: 'rgb(54, 162, 235)',
+                                    backgroundColor: 'rgba(54, 162, 235, 0.1)',
+                                    tension: 0.4
+                                },
+                                {
+                                    label: 'Repository Queries',
+                                    data: helmData[2].map(p => p.value),
+                                    borderColor: 'rgb(153, 102, 255)',
+                                    backgroundColor: 'rgba(153, 102, 255, 0.1)',
+                                    tension: 0.4
+                                },
+                                {
+                                    label: 'Query Errors',
+                                    data: helmData[3].map(p => p.value),
+                                    borderColor: 'rgb(255, 99, 132)',
+                                    backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                                    tension: 0.4
+                                }
+                            ]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: true,
+                            plugins: { legend: { position: 'bottom' } },
+                            scales: { y: { beginAtZero: true } }
+                        }
+                    });
+
+                    // Create notifications chart
+                    if (notificationsChart) notificationsChart.destroy();
+                    const notificationsCtx = document.getElementById('notifications-chart').getContext('2d');
+                    notificationsChart = new Chart(notificationsCtx, {
+                        type: 'line',
+                        data: {
+                            labels: notificationData[0].map(p => formatTimestamp(p.timestamp, currentTimeRange)),
+                            datasets: [
+                                {
+                                    label: 'Total Sent',
+                                    data: notificationData[0].map(p => p.value),
+                                    borderColor: 'rgb(75, 192, 192)',
+                                    backgroundColor: 'rgba(75, 192, 192, 0.1)',
+                                    tension: 0.4
+                                },
+                                {
+                                    label: 'Failed',
+                                    data: notificationData[1].map(p => p.value),
+                                    borderColor: 'rgb(255, 99, 132)',
+                                    backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                                    tension: 0.4
+                                },
+                                {
+                                    label: 'Slack',
+                                    data: notificationData[2].map(p => p.value),
+                                    borderColor: 'rgb(54, 162, 235)',
+                                    backgroundColor: 'rgba(54, 162, 235, 0.1)',
+                                    tension: 0.4
+                                },
+                                {
+                                    label: 'Teams',
+                                    data: notificationData[3].map(p => p.value),
+                                    borderColor: 'rgb(153, 102, 255)',
+                                    backgroundColor: 'rgba(153, 102, 255, 0.1)',
+                                    tension: 0.4
+                                }
+                            ]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: true,
+                            plugins: { legend: { position: 'bottom' } },
+                            scales: { y: { beginAtZero: true } }
+                        }
+                    });
+
+                    // Create webhook chart
+                    if (webhookChart) webhookChart.destroy();
+                    const webhookCtx = document.getElementById('webhook-chart').getContext('2d');
+                    webhookChart = new Chart(webhookCtx, {
+                        type: 'line',
+                        data: {
+                            labels: webhookData[0].map(p => formatTimestamp(p.timestamp, currentTimeRange)),
+                            datasets: [
+                                {
+                                    label: 'Events Received',
+                                    data: webhookData[0].map(p => p.value),
+                                    borderColor: 'rgb(54, 162, 235)',
+                                    backgroundColor: 'rgba(54, 162, 235, 0.1)',
+                                    tension: 0.4
+                                },
+                                {
+                                    label: 'Events Processed',
+                                    data: webhookData[1].map(p => p.value),
+                                    borderColor: 'rgb(75, 192, 192)',
+                                    backgroundColor: 'rgba(75, 192, 192, 0.1)',
+                                    tension: 0.4
+                                }
+                            ]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: true,
+                            plugins: { legend: { position: 'bottom' } },
+                            scales: { y: { beginAtZero: true } }
+                        }
+                    });
+
+                    // Create errors chart
+                    if (errorsChart) errorsChart.destroy();
+                    const errorsCtx = document.getElementById('errors-chart').getContext('2d');
+                    errorsChart = new Chart(errorsCtx, {
+                        type: 'line',
+                        data: {
+                            labels: errorData[0].map(p => formatTimestamp(p.timestamp, currentTimeRange)),
+                            datasets: [
+                                {
+                                    label: 'Reconcile Errors',
+                                    data: errorData[0].map(p => p.value),
+                                    borderColor: 'rgb(255, 99, 132)',
+                                    backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                                    tension: 0.4
+                                }
+                            ]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: true,
+                            plugins: { legend: { position: 'bottom' } },
+                            scales: { y: { beginAtZero: true } }
                         }
                     });
                 } catch (error) {

@@ -60,6 +60,9 @@ async fn main() -> Result<()> {
     // Start Kubernetes controllers
     let controller_handle = controller::start_controllers().await?;
 
+    // Start gauge updater to periodically update resource counts
+    let gauge_updater_handle = metrics::start_gauge_updater(client.clone());
+
     info!("Headwind is running");
 
     // Wait for all services
@@ -70,6 +73,7 @@ async fn main() -> Result<()> {
         _ = approval_handle => info!("Approval server stopped"),
         _ = ui_handle => info!("Web UI server stopped"),
         _ = controller_handle => info!("Controllers stopped"),
+        _ = gauge_updater_handle => info!("Gauge updater stopped"),
     }
 
     Ok(())

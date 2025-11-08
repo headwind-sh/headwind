@@ -3,10 +3,10 @@ use axum::{
     routing::{get, post, put},
 };
 use std::net::SocketAddr;
-use tower_http::services::ServeDir;
 use tracing::info;
 
 pub mod routes;
+pub mod static_files;
 pub mod templates;
 
 /// Start the Web UI server
@@ -25,8 +25,8 @@ pub async fn start_ui_server() -> Result<(), Box<dyn std::error::Error>> {
 /// Create the Axum router for the Web UI
 fn create_router() -> Router {
     Router::new()
-        // Serve static files (CSS, JS, images)
-        .nest_service("/static", ServeDir::new("src/static"))
+        // Serve embedded static files (CSS, JS, images)
+        .route("/static/{*path}", get(static_files::serve_static))
         // Health check endpoint
         .route("/health", get(routes::health_check))
         // Dashboard route (main page)
@@ -50,4 +50,6 @@ fn create_router() -> Router {
             "/api/v1/metrics/timeseries/{metric_name}",
             get(routes::get_metrics_timeseries),
         )
+        // UpdateRequest API endpoint for counts
+        .route("/api/v1/updates", get(routes::list_update_requests))
 }

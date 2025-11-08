@@ -22,7 +22,7 @@ spec:
       serviceAccountName: headwind
       containers:
       - name: headwind
-        image: headwind:test-phase6-v2
+        image: headwind:test-phase6-v13
         imagePullPolicy: IfNotPresent
         ports:
         - name: webhook

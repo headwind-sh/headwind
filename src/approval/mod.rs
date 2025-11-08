@@ -147,6 +147,9 @@ async fn approve_update(
         approval.approver.as_deref().unwrap_or("unknown")
     );
 
+    // Increment approved counter
+    crate::metrics::UPDATES_APPROVED.inc();
+
     // Execute the update
     let update_result = execute_update(
         &state.client,
@@ -618,6 +621,9 @@ async fn execute_deployment_update(
             }
         });
     }
+
+    // Increment metrics
+    crate::metrics::UPDATES_APPLIED.inc();
 
     Ok(())
 }
