@@ -86,10 +86,6 @@ const config: Config = {
         },
         {to: '/changelog', label: 'Changelog', position: 'left'},
         {
-          type: 'docsVersionDropdown',
-          position: 'right',
-        },
-        {
           href: 'https://github.com/headwind-sh/headwind',
           label: 'GitHub',
           position: 'right',
