@@ -52,4 +52,18 @@ fn create_router() -> Router {
         )
         // UpdateRequest API endpoint for counts
         .route("/api/v1/updates", get(routes::list_update_requests))
+        // Individual approve/reject operations
+        .route(
+            "/api/v1/updates/{namespace}/{name}/approve",
+            post(routes::approve_update),
+        )
+        .route(
+            "/api/v1/updates/{namespace}/{name}/reject",
+            post(routes::reject_update),
+        )
+        // Bulk operations
+        .route("/api/v1/updates/bulk/approve", post(routes::bulk_approve))
+        .route("/api/v1/updates/bulk/reject", post(routes::bulk_reject))
+        // Real-time updates via Server-Sent Events
+        .route("/api/v1/events/updates", get(routes::updates_stream))
 }

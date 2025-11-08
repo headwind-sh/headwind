@@ -3,7 +3,6 @@ use crate::controller::{
     update_statefulset_image_with_tracking,
 };
 use crate::models::crd::{UpdatePhase, UpdateRequest, UpdateRequestStatus};
-use crate::models::update::ApprovalRequest;
 use crate::notifications::{self, DeploymentInfo};
 use crate::rollback::{
     AutoRollbackConfig, HealthChecker, HealthStatus, RollbackManager, UpdateHistory,
@@ -27,8 +26,8 @@ use tower_http::trace::TraceLayer;
 use tracing::{debug, error, info, warn};
 
 #[derive(Clone)]
-struct ApprovalState {
-    client: Client,
+pub struct ApprovalState {
+    pub client: Client,
 }
 
 pub async fn start_approval_server() -> Result<JoinHandle<()>> {
@@ -104,10 +103,23 @@ async fn get_update(
     }
 }
 
-async fn approve_update(
+/// Simple approval request for UI (doesn't require update_id since it's in the path)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SimpleApprovalRequest {
+    pub approver: Option<String>,
+}
+
+/// Simple rejection request for UI (doesn't require update_id since it's in the path)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SimpleRejectionRequest {
+    pub approver: Option<String>,
+    pub reason: Option<String>,
+}
+
+pub async fn approve_update(
     State(state): State<ApprovalState>,
     Path((namespace, name)): Path<(String, String)>,
-    Json(approval): Json<ApprovalRequest>,
+    Json(approval): Json<SimpleApprovalRequest>,
 ) -> impl IntoResponse {
     let update_requests: Api<UpdateRequest> = Api::namespaced(state.client.clone(), &namespace);
 
@@ -242,10 +254,10 @@ async fn approve_update(
     }
 }
 
-async fn reject_update(
+pub async fn reject_update(
     State(state): State<ApprovalState>,
     Path((namespace, name)): Path<(String, String)>,
-    Json(approval): Json<ApprovalRequest>,
+    Json(approval): Json<SimpleRejectionRequest>,
 ) -> impl IntoResponse {
     let update_requests: Api<UpdateRequest> = Api::namespaced(state.client.clone(), &namespace);
 

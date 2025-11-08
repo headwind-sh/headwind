@@ -248,10 +248,236 @@ pub fn base_layout(title: &str, content: Markup) -> Markup {
                         filterAndSortUpdates();
                     }
 
+                    // Bulk action functions
+                    function toggleSelectAll(checkbox) {
+                        const checkboxes = document.querySelectorAll('.update-checkbox');
+                        checkboxes.forEach(cb => {
+                            // Only check/uncheck visible rows
+                            const row = cb.closest('tr');
+                            if (row && row.style.display !== 'none') {
+                                cb.checked = checkbox.checked;
+                            }
+                        });
+                        updateBulkActionButtons();
+                    }
+
+                    function updateBulkActionButtons() {
+                        const checkedBoxes = document.querySelectorAll('.update-checkbox:checked');
+                        const count = checkedBoxes.length;
+
+                        const approveBtn = document.getElementById('bulk-approve-btn');
+                        const rejectBtn = document.getElementById('bulk-reject-btn');
+                        const approveBadge = document.getElementById('selected-count-approve');
+                        const rejectBadge = document.getElementById('selected-count-reject');
+
+                        if (approveBtn) approveBtn.disabled = count === 0;
+                        if (rejectBtn) rejectBtn.disabled = count === 0;
+                        if (approveBadge) approveBadge.textContent = count;
+                        if (rejectBadge) rejectBadge.textContent = count;
+
+                        // Update select-all checkbox state
+                        const selectAllCheckbox = document.getElementById('select-all-checkbox');
+                        const visibleCheckboxes = Array.from(document.querySelectorAll('.update-checkbox')).filter(cb => {
+                            const row = cb.closest('tr');
+                            return row && row.style.display !== 'none';
+                        });
+                        if (selectAllCheckbox && visibleCheckboxes.length > 0) {
+                            const allChecked = visibleCheckboxes.every(cb => cb.checked);
+                            const someChecked = visibleCheckboxes.some(cb => cb.checked);
+                            selectAllCheckbox.checked = allChecked;
+                            selectAllCheckbox.indeterminate = someChecked && !allChecked;
+                        }
+                    }
+
+                    function bulkApprove() {
+                        const checkedBoxes = document.querySelectorAll('.update-checkbox:checked');
+                        const count = checkedBoxes.length;
+
+                        if (count === 0) return;
+
+                        if (!confirm(`Are you sure you want to approve ${count} update(s)?`)) {
+                            return;
+                        }
+
+                        const updates = Array.from(checkedBoxes).map(cb => ({
+                            namespace: cb.dataset.namespace,
+                            name: cb.dataset.name
+                        }));
+
+                        fetch('/api/v1/updates/bulk/approve', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                updates: updates,
+                                approver: 'web-ui'
+                            })
+                        })
+                        .then(response => response.json())
+                        .then(data => {
+                            showToast(`Successfully approved ${data.success_count} update(s)`, 'success');
+                            setTimeout(() => window.location.reload(), 1500);
+                        })
+                        .catch(error => {
+                            showToast('Failed to approve updates: ' + error, 'error');
+                        });
+                    }
+
+                    function showBulkRejectModal() {
+                        const modal = document.getElementById('bulk-reject-modal');
+                        if (modal) modal.showModal();
+                    }
+
+                    function bulkReject() {
+                        const reasonInput = document.getElementById('bulk-reject-reason');
+                        const reason = reasonInput ? reasonInput.value.trim() : '';
+
+                        if (!reason) {
+                            showToast('Please provide a rejection reason', 'error');
+                            return;
+                        }
+
+                        const checkedBoxes = document.querySelectorAll('.update-checkbox:checked');
+                        const updates = Array.from(checkedBoxes).map(cb => ({
+                            namespace: cb.dataset.namespace,
+                            name: cb.dataset.name
+                        }));
+
+                        fetch('/api/v1/updates/bulk/reject', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                updates: updates,
+                                reason: reason
+                            })
+                        })
+                        .then(response => response.json())
+                        .then(data => {
+                            const modal = document.getElementById('bulk-reject-modal');
+                            if (modal) modal.close();
+                            showToast(`Successfully rejected ${data.success_count} update(s)`, 'success');
+                            setTimeout(() => window.location.reload(), 1500);
+                        })
+                        .catch(error => {
+                            showToast('Failed to reject updates: ' + error, 'error');
+                        });
+                    }
+
                     // Initialize on page load
                     document.addEventListener('DOMContentLoaded', function() {
                         filterAndSortUpdates();
+                        updateBulkActionButtons();
+                        // Auto-refresh every 30 seconds to show new updates
+                        setInterval(function() {
+                            console.log('Auto-refreshing dashboard...');
+                            window.location.reload();
+                        }, 30000);
                     });
+
+                    // Server-Sent Events for real-time updates
+                    let eventSource = null;
+                    let reconnectInterval = null;
+                    let isInitialLoad = true;
+
+                    function initializeSSE() {
+                        if (eventSource) {
+                            eventSource.close();
+                        }
+
+                        isInitialLoad = true;
+                        console.log('Connecting to SSE endpoint...');
+                        eventSource = new EventSource('/api/v1/events/updates');
+
+                        eventSource.addEventListener('updated', function(e) {
+                            console.log('SSE updated event:', e.data);
+                            // Skip updates during initial load to prevent refresh loop
+                            if (isInitialLoad) {
+                                console.log('Skipping update during initial load');
+                                return;
+                            }
+                            const update = JSON.parse(e.data);
+                            handleUpdateEvent(update);
+                        });
+
+                        eventSource.addEventListener('deleted', function(e) {
+                            console.log('SSE deleted event:', e.data);
+                            const update = JSON.parse(e.data);
+                            handleDeleteEvent(update);
+                        });
+
+                        eventSource.addEventListener('refresh', function(e) {
+                            console.log('SSE refresh event:', e.data);
+                            // Full page reload on watch restart
+                            window.location.reload();
+                        });
+
+                        eventSource.addEventListener('init-done', function(e) {
+                            console.log('SSE init-done:', e.data);
+                            // Initial load complete, now start processing real-time updates
+                            isInitialLoad = false;
+                        });
+
+                        eventSource.addEventListener('error', function(e) {
+                            console.error('SSE error event:', e);
+                        });
+
+                        eventSource.onerror = function(e) {
+                            console.error('SSE connection error:', e);
+                            // Close and attempt reconnection after 5 seconds
+                            eventSource.close();
+                            clearInterval(reconnectInterval);
+                            reconnectInterval = setTimeout(() => {
+                                console.log('Attempting to reconnect SSE...');
+                                initializeSSE();
+                            }, 5000);
+                        };
+
+                        eventSource.onopen = function(e) {
+                            console.log('SSE connection established');
+                            clearInterval(reconnectInterval);
+                        };
+                    }
+
+                    function handleUpdateEvent(update) {
+                        // Find existing row for this update
+                        const table = document.getElementById('updates-table');
+                        if (!table) return;
+
+                        const tbody = table.querySelector('tbody');
+                        if (!tbody) return;
+
+                        const existingRow = tbody.querySelector(`tr[data-namespace="${update.namespace}"][data-name="${update.name}"]`);
+
+                        if (existingRow) {
+                            // Update existing row - reload page for simplicity
+                            console.log('Update modified, reloading page...');
+                            window.location.reload();
+                        } else {
+                            // New update created - reload page
+                            console.log('New update created, reloading page...');
+                            window.location.reload();
+                        }
+                    }
+
+                    function handleDeleteEvent(update) {
+                        // Remove the row from the table
+                        const table = document.getElementById('updates-table');
+                        if (!table) return;
+
+                        const tbody = table.querySelector('tbody');
+                        if (!tbody) return;
+
+                        const row = tbody.querySelector(`tr[data-namespace="${update.namespace}"][data-name="${update.name}"]`);
+                        if (row) {
+                            console.log('Update deleted, removing row...');
+                            row.remove();
+                            // Reapply filtering and pagination
+                            filterAndSortUpdates();
+                        }
+                    }
                     "#))
                 }
             }
@@ -377,6 +603,20 @@ pub fn dashboard(
                         }
                     }
 
+                    // Bulk action buttons
+                    div class="flex justify-between items-center mb-4" {
+                        div class="flex gap-2" {
+                            button id="bulk-approve-btn" class="btn btn-success btn-sm" onclick="bulkApprove()" disabled {
+                                "✓ Approve Selected"
+                                span id="selected-count-approve" class="badge badge-sm ml-2" { "0" }
+                            }
+                            button id="bulk-reject-btn" class="btn btn-error btn-sm" onclick="showBulkRejectModal()" disabled {
+                                "✗ Reject Selected"
+                                span id="selected-count-reject" class="badge badge-sm ml-2" { "0" }
+                            }
+                        }
+                    }
+
                     // Pagination controls
                     div class="flex justify-between items-center mb-4" {
                         div class="text-sm opacity-70" {
@@ -406,6 +646,9 @@ pub fn dashboard(
                         table class="table table-zebra" {
                             thead {
                                 tr {
+                                    th {
+                                        input type="checkbox" id="select-all-checkbox" class="checkbox checkbox-sm" onchange="toggleSelectAll(this)" {}
+                                    }
                                     th { "Resource" }
                                     th { "Namespace" }
                                     th { "Current Version" }
@@ -427,6 +670,12 @@ pub fn dashboard(
                                         data-policy=(update.policy)
                                         data-created-at=(update.created_at) {
                                         td {
+                                            input type="checkbox" class="checkbox checkbox-sm update-checkbox"
+                                                data-namespace=(update.namespace)
+                                                data-name=(update.name)
+                                                onchange="updateBulkActionButtons()" {}
+                                        }
+                                        td {
                                             div class="flex flex-col" {
                                                 span class="badge badge-outline badge-sm mb-1" { (update.resource_kind) }
                                                 span class="font-semibold" { (update.resource_name) }
@@ -443,44 +692,16 @@ pub fn dashboard(
                                                     hx-post=(format!("/api/v1/updates/{}/{}/approve", update.namespace, update.name))
                                                     hx-vals=r#"{"approver": "web-ui"}"#
                                                     hx-confirm="Are you sure you want to approve this update?"
-                                                    hx-target=(format!("#update-row-{}-{}", update.namespace, update.name))
-                                                    hx-swap="outerHTML" {
+                                                    hx-swap="none"
+                                                    hx-on--after-request="window.location.reload()" {
                                                     "✓ Approve"
                                                 }
                                                 button class="btn btn-error btn-sm"
-                                                    onclick=(format!("reject_modal_{}_{}.showModal()", update.namespace, update.name)) {
+                                                    onclick=(format!("document.getElementById('reject_modal_{}_{}').showModal()", update.namespace, update.name)) {
                                                     "✗ Reject"
                                                 }
                                                 a href=(format!("/updates/{}/{}", update.namespace, update.name)) class="btn btn-ghost btn-sm" {
                                                     "Details"
-                                                }
-                                            }
-
-                                            // Reject Modal
-                                            dialog id=(format!("reject_modal_{}_{}", update.namespace, update.name)) class="modal" {
-                                                div class="modal-box" {
-                                                    h3 class="font-bold text-lg" { "Reject Update" }
-                                                    p class="py-4" { "Please provide a reason for rejecting this update:" }
-                                                    form method="dialog" {
-                                                        textarea id=(format!("reject_reason_{}_{}", update.namespace, update.name))
-                                                            class="textarea textarea-bordered w-full"
-                                                            placeholder="Reason for rejection..."
-                                                            rows="3" {}
-                                                        div class="modal-action" {
-                                                            button class="btn" { "Cancel" }
-                                                            button type="button" class="btn btn-error"
-                                                                hx-post=(format!("/api/v1/updates/{}/{}/reject", update.namespace, update.name))
-                                                                hx-vals=(format!(r#"js:{{approver: "web-ui", reason: document.getElementById("reject_reason_{}_{}").value}}"#, update.namespace, update.name))
-                                                                hx-target=(format!("#update-row-{}-{}", update.namespace, update.name))
-                                                                hx-swap="outerHTML"
-                                                                onclick=(format!("reject_modal_{}_{}.close()", update.namespace, update.name)) {
-                                                                "Reject Update"
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                                form method="dialog" class="modal-backdrop" {
-                                                    button { "close" }
                                                 }
                                             }
                                         }
@@ -553,6 +774,59 @@ pub fn dashboard(
                         }
                     }
                 }
+            }
+        }
+
+        // Individual Reject Modals for Pending Updates
+        @for update in pending_updates {
+            dialog id=(format!("reject_modal_{}_{}", update.namespace, update.name)) class="modal" {
+                div class="modal-box" {
+                    h3 class="font-bold text-lg" { "Reject Update" }
+                    p class="py-4" { "Please provide a reason for rejecting this update:" }
+                    textarea id=(format!("reject_reason_{}_{}", update.namespace, update.name))
+                        class="textarea textarea-bordered w-full"
+                        placeholder="Reason for rejection..."
+                        rows="3" {}
+                    div class="modal-action" {
+                        button class="btn" onclick=(format!("document.getElementById('reject_modal_{}_{}').close()", update.namespace, update.name)) { "Cancel" }
+                        button type="button" class="btn btn-error"
+                            hx-post=(format!("/api/v1/updates/{}/{}/reject", update.namespace, update.name))
+                            hx-vals=(format!(r#"js:{{approver: "web-ui", reason: document.getElementById("reject_reason_{}_{}").value}}"#, update.namespace, update.name))
+                            hx-swap="none"
+                            hx-on--after-request="window.location.reload()" {
+                            "Reject Update"
+                        }
+                    }
+                }
+                form method="dialog" class="modal-backdrop" {
+                    button { "close" }
+                }
+            }
+        }
+
+        // Bulk Reject Modal
+        dialog id="bulk-reject-modal" class="modal" {
+            div class="modal-box" {
+                h3 class="font-bold text-lg" { "Reject Selected Updates" }
+                p class="py-4" { "Please provide a reason for rejecting these updates:" }
+
+                div class="form-control" {
+                    label class="label" {
+                        span class="label-text" { "Rejection Reason" }
+                    }
+                    textarea id="bulk-reject-reason" class="textarea textarea-bordered h-24"
+                        placeholder="e.g., Failed QA testing, security concerns, etc." {}
+                }
+
+                div class="modal-action" {
+                    form method="dialog" {
+                        button class="btn" { "Cancel" }
+                    }
+                    button class="btn btn-error" onclick="bulkReject()" { "Reject Selected" }
+                }
+            }
+            form method="dialog" class="modal-backdrop" {
+                button { "close" }
             }
         }
     };

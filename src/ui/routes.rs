@@ -1,10 +1,17 @@
 use axum::{
+    Form,
     extract::{Path, Query},
     http::StatusCode,
-    response::{IntoResponse, Json},
+    response::{
+        IntoResponse, Json,
+        sse::{Event, Sse},
+    },
 };
 use chrono::{DateTime, Duration, Utc};
+use futures::StreamExt as FuturesStreamExt;
+use futures::stream::Stream;
 use kube::{Api, Client};
+use serde::Deserialize;
 use tracing::{error, info};
 
 use crate::config::HeadwindConfig;
@@ -678,5 +685,367 @@ pub async fn list_update_requests() -> impl IntoResponse {
             )
                 .into_response()
         },
+    }
+}
+
+/// Bulk approve updates
+#[derive(serde::Deserialize)]
+pub struct BulkApproveRequest {
+    updates: Vec<UpdateIdentifier>,
+    approver: String,
+}
+
+#[derive(serde::Deserialize)]
+pub struct UpdateIdentifier {
+    namespace: String,
+    name: String,
+}
+
+#[derive(serde::Serialize)]
+pub struct BulkOperationResponse {
+    success_count: usize,
+    failed_count: usize,
+    errors: Vec<String>,
+}
+
+pub async fn bulk_approve(Json(request): Json<BulkApproveRequest>) -> impl IntoResponse {
+    info!(
+        "Bulk approving {} updates by {}",
+        request.updates.len(),
+        request.approver
+    );
+
+    let mut success_count = 0;
+    let mut failed_count = 0;
+    let mut errors = Vec::new();
+
+    for update in &request.updates {
+        // Call the approval API endpoint for each update
+        let approval_url = format!(
+            "http://localhost:8081/api/v1/updates/{}/{}/approve",
+            update.namespace, update.name
+        );
+
+        let approve_payload = serde_json::json!({
+            "approver": request.approver
+        });
+
+        match reqwest::Client::new()
+            .post(&approval_url)
+            .json(&approve_payload)
+            .send()
+            .await
+        {
+            Ok(response) => {
+                if response.status().is_success() {
+                    success_count += 1;
+                    info!("Successfully approved {}/{}", update.namespace, update.name);
+                } else {
+                    failed_count += 1;
+                    let error_msg = format!(
+                        "{}/{}: HTTP {}",
+                        update.namespace,
+                        update.name,
+                        response.status()
+                    );
+                    errors.push(error_msg.clone());
+                    error!(
+                        "Failed to approve {}/{}: {}",
+                        update.namespace, update.name, error_msg
+                    );
+                }
+            },
+            Err(e) => {
+                failed_count += 1;
+                let error_msg = format!("{}/{}: {}", update.namespace, update.name, e);
+                errors.push(error_msg.clone());
+                error!(
+                    "Failed to approve {}/{}: {}",
+                    update.namespace, update.name, e
+                );
+            },
+        }
+    }
+
+    let response = BulkOperationResponse {
+        success_count,
+        failed_count,
+        errors,
+    };
+
+    (StatusCode::OK, Json(response)).into_response()
+}
+
+/// Bulk reject updates
+#[derive(serde::Deserialize)]
+pub struct BulkRejectRequest {
+    updates: Vec<UpdateIdentifier>,
+    reason: String,
+}
+
+pub async fn bulk_reject(Json(request): Json<BulkRejectRequest>) -> impl IntoResponse {
+    info!(
+        "Bulk rejecting {} updates with reason: {}",
+        request.updates.len(),
+        request.reason
+    );
+
+    let mut success_count = 0;
+    let mut failed_count = 0;
+    let mut errors = Vec::new();
+
+    for update in &request.updates {
+        // Call the approval API endpoint for each update
+        let reject_url = format!(
+            "http://localhost:8081/api/v1/updates/{}/{}/reject",
+            update.namespace, update.name
+        );
+
+        let reject_payload = serde_json::json!({
+            "reason": request.reason
+        });
+
+        match reqwest::Client::new()
+            .post(&reject_url)
+            .json(&reject_payload)
+            .send()
+            .await
+        {
+            Ok(response) => {
+                if response.status().is_success() {
+                    success_count += 1;
+                    info!("Successfully rejected {}/{}", update.namespace, update.name);
+                } else {
+                    failed_count += 1;
+                    let error_msg = format!(
+                        "{}/{}: HTTP {}",
+                        update.namespace,
+                        update.name,
+                        response.status()
+                    );
+                    errors.push(error_msg.clone());
+                    error!(
+                        "Failed to reject {}/{}: {}",
+                        update.namespace, update.name, error_msg
+                    );
+                }
+            },
+            Err(e) => {
+                failed_count += 1;
+                let error_msg = format!("{}/{}: {}", update.namespace, update.name, e);
+                errors.push(error_msg.clone());
+                error!(
+                    "Failed to reject {}/{}: {}",
+                    update.namespace, update.name, e
+                );
+            },
+        }
+    }
+
+    let response = BulkOperationResponse {
+        success_count,
+        failed_count,
+        errors,
+    };
+
+    (StatusCode::OK, Json(response)).into_response()
+}
+
+/// Server-Sent Events endpoint for real-time UpdateRequest changes
+pub async fn updates_stream() -> Sse<impl Stream<Item = Result<Event, anyhow::Error>>> {
+    use kube::runtime::watcher;
+
+    info!("New SSE client connected for UpdateRequest stream");
+
+    let stream = async_stream::stream! {
+        // Create Kubernetes client
+        let client = match Client::try_default().await {
+            Ok(c) => c,
+            Err(e) => {
+                error!("Failed to create Kubernetes client for SSE: {}", e);
+                return;
+            },
+        };
+
+        // Create API for UpdateRequests across all namespaces
+        let api: Api<UpdateRequest> = Api::all(client);
+
+        // Watch for changes
+        let watcher = watcher(api, Default::default());
+        let mut stream = watcher.boxed();
+
+        while let Some(event) = tokio_stream::StreamExt::next(&mut stream).await {
+            match event {
+                Ok(watcher_event) => {
+                    use kube::runtime::watcher::Event as WatchEvent;
+
+                    match watcher_event {
+                        WatchEvent::Apply(ur) => {
+                            // Send an update event for applied/modified resources
+                            let view = convert_to_view(&ur);
+                            match serde_json::to_string(&view) {
+                                Ok(json) => {
+                                    let event = Event::default()
+                                        .event("updated")
+                                        .data(json);
+                                    yield Ok(event);
+                                },
+                                Err(e) => {
+                                    error!("Failed to serialize UpdateRequest for SSE: {}", e);
+                                },
+                            }
+                        },
+                        WatchEvent::Delete(ur) => {
+                            // Send a delete event
+                            let view = convert_to_view(&ur);
+                            match serde_json::to_string(&view) {
+                                Ok(json) => {
+                                    let event = Event::default()
+                                        .event("deleted")
+                                        .data(json);
+                                    yield Ok(event);
+                                },
+                                Err(e) => {
+                                    error!("Failed to serialize UpdateRequest for SSE: {}", e);
+                                },
+                            }
+                        },
+                        WatchEvent::Init => {
+                            // Send a refresh event when the watch initializes
+                            let event = Event::default()
+                                .event("refresh")
+                                .data("Watch initialized");
+                            yield Ok(event);
+                        },
+                        WatchEvent::InitApply(ur) => {
+                            // Send an update event for initial resources during watch initialization
+                            let view = convert_to_view(&ur);
+                            match serde_json::to_string(&view) {
+                                Ok(json) => {
+                                    let event = Event::default()
+                                        .event("updated")
+                                        .data(json);
+                                    yield Ok(event);
+                                },
+                                Err(e) => {
+                                    error!("Failed to serialize UpdateRequest for SSE: {}", e);
+                                },
+                            }
+                        },
+                        WatchEvent::InitDone => {
+                            // Send an event when initial watch synchronization completes
+                            let event = Event::default()
+                                .event("init-done")
+                                .data("Initial watch sync completed");
+                            yield Ok(event);
+                        },
+                    }
+                },
+                Err(e) => {
+                    error!("Watch error in SSE stream: {}", e);
+                    // Send an error event to the client
+                    let event = Event::default()
+                        .event("error")
+                        .data(format!("Watch error: {}", e));
+                    yield Ok(event);
+                },
+            }
+        }
+
+        info!("SSE stream ended");
+    };
+
+    Sse::new(stream).keep_alive(
+        axum::response::sse::KeepAlive::new()
+            .interval(std::time::Duration::from_secs(15))
+            .text("keep-alive"),
+    )
+}
+
+#[derive(Deserialize)]
+pub struct ApprovalForm {
+    approver: Option<String>,
+}
+
+/// Approve an individual update request (proxy to approval API)
+pub async fn approve_update(
+    Path((namespace, name)): Path<(String, String)>,
+    Form(form): Form<ApprovalForm>,
+) -> impl IntoResponse {
+    let approval_url = format!(
+        "http://localhost:8081/api/v1/updates/{}/{}/approve",
+        namespace, name
+    );
+
+    // Convert form to JSON for the approval API
+    let json_body = serde_json::json!({
+        "approver": form.approver
+    });
+
+    match reqwest::Client::new()
+        .post(&approval_url)
+        .json(&json_body)
+        .send()
+        .await
+    {
+        Ok(response) => {
+            let status = response.status();
+            match response.json::<serde_json::Value>().await {
+                Ok(body) => (status, Json(body)),
+                Err(_) => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": "Failed to parse response"})),
+                ),
+            }
+        },
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        ),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct RejectionForm {
+    approver: Option<String>,
+    reason: Option<String>,
+}
+
+/// Reject an individual update request (proxy to approval API)
+pub async fn reject_update(
+    Path((namespace, name)): Path<(String, String)>,
+    Form(form): Form<RejectionForm>,
+) -> impl IntoResponse {
+    let approval_url = format!(
+        "http://localhost:8081/api/v1/updates/{}/{}/reject",
+        namespace, name
+    );
+
+    // Convert form to JSON for the approval API
+    let json_body = serde_json::json!({
+        "approver": form.approver,
+        "reason": form.reason
+    });
+
+    match reqwest::Client::new()
+        .post(&approval_url)
+        .json(&json_body)
+        .send()
+        .await
+    {
+        Ok(response) => {
+            let status = response.status();
+            match response.json::<serde_json::Value>().await {
+                Ok(body) => (status, Json(body)),
+                Err(_) => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": "Failed to parse response"})),
+                ),
+            }
+        },
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        ),
     }
 }
