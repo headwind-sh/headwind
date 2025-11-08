@@ -86,7 +86,7 @@ repos:
         language: system
         types: [rust]
         pass_filenames: false
-        stages: [push]
+        stages: [pre-push]
 
       - id: cargo-deny
         name: cargo deny
@@ -95,7 +95,7 @@ repos:
         language: system
         types: [rust]
         pass_filenames: false
-        stages: [push]
+        stages: [pre-push]
 
       - id: no-secrets
         name: Check for secrets
