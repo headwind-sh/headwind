@@ -21,19 +21,22 @@ updates:
         patterns:
           - "kube*"
           - "k8s-openapi"
-        update-types:
-          - "minor"
-          - "patch"
       # HTTP/web server dependencies
       web-framework:
         patterns:
           - "axum*"
           - "tower*"
           - "hyper*"
-        update-types:
-          - "minor"
-          - "patch"
-      # All other patch updates
+      # Async runtime and related
+      async-runtime:
+        patterns:
+          - "tokio*"
+          - "async-*"
+      # Serialization
+      serialization:
+        patterns:
+          - "serde*"
+      # All patch updates
       patch-updates:
         update-types:
           - "patch"
@@ -53,14 +56,17 @@ updates:
       prefix: "chore(deps)"
       include: "scope"
     groups:
-      # Docusaurus core
+      # Docusaurus ecosystem
       docusaurus:
         patterns:
           - "@docusaurus/*"
-        update-types:
-          - "minor"
-          - "patch"
-      # All other patch updates
+          - "docusaurus-*"
+      # React ecosystem
+      react:
+        patterns:
+          - "react*"
+          - "@types/react*"
+      # All patch updates
       npm-patch-updates:
         update-types:
           - "patch"

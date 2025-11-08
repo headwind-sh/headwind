@@ -30,6 +30,8 @@ jobs:
   gitleaks:
     name: Secret Scanning
     runs-on: ubuntu-latest
+    # Skip on dependabot PRs since they don't have access to secrets
+    if: github.actor != 'dependabot[bot]'
     steps:
       - uses: actions/checkout@v5
         with:
