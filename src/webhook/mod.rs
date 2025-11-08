@@ -1,6 +1,6 @@
 use crate::metrics::{WEBHOOK_EVENTS_PROCESSED, WEBHOOK_EVENTS_TOTAL};
 use crate::models::webhook::{ChartPushEvent, DockerHubWebhook, ImagePushEvent, RegistryWebhook};
-use crate::models::{ResourcePolicy, annotations};
+use crate::models::{EventSource, ResourcePolicy, annotations};
 use crate::policy::PolicyEngine;
 use anyhow::Result;
 use axum::{Json, Router, extract::State, http::StatusCode, response::IntoResponse, routing::post};
@@ -191,6 +191,33 @@ macro_rules! impl_process_resources {
                     continue;
                 }
 
+                // Parse policy to check event source
+                let policy = match parse_policy_from_annotations(annotations) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        warn!(
+                            "Failed to parse policy for {} {}: {}",
+                            $resource_name,
+                            resource.name_any(),
+                            e
+                        );
+                        continue;
+                    },
+                };
+
+                // Check event source - only process webhook events if event_source is "webhook" or "both"
+                if policy.event_source != EventSource::Webhook
+                    && policy.event_source != EventSource::Both
+                {
+                    debug!(
+                        "Skipping {} {} - event source is {:?}, not webhook",
+                        $resource_name,
+                        resource.name_any(),
+                        policy.event_source
+                    );
+                    continue;
+                }
+
                 // Check each container in the resource
                 let spec = match resource.spec.as_ref() {
                     Some(s) => s,
@@ -372,6 +399,29 @@ async fn process_chart_push_event(
             continue;
         }
 
+        // Parse policy to check event source
+        let policy = match parse_policy_from_annotations(annotations) {
+            Ok(p) => p,
+            Err(e) => {
+                warn!(
+                    "Failed to parse policy for HelmRelease {}: {}",
+                    helm_release.name_any(),
+                    e
+                );
+                continue;
+            },
+        };
+
+        // Check event source - only process webhook events if event_source is "webhook" or "both"
+        if policy.event_source != EventSource::Webhook && policy.event_source != EventSource::Both {
+            debug!(
+                "Skipping HelmRelease {} - event source is {:?}, not webhook",
+                helm_release.name_any(),
+                policy.event_source
+            );
+            continue;
+        }
+
         // Get chart name and source ref from HelmRelease spec
         let chart_name = &helm_release.spec.chart.spec.chart;
         let source_ref = &helm_release.spec.chart.spec.source_ref;
@@ -482,6 +532,16 @@ async fn process_image_push_event(
                 continue;
             },
         };
+
+        // Check event source - only process webhook events if event_source is "webhook" or "both"
+        if policy.event_source != EventSource::Webhook && policy.event_source != EventSource::Both {
+            debug!(
+                "Skipping deployment {} - event source is {:?}, not webhook",
+                deployment.name_any(),
+                policy.event_source
+            );
+            continue;
+        }
 
         // Check each container
         let spec = match deployment.spec.as_ref() {
