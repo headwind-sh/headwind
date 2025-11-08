@@ -8,6 +8,7 @@ Headwind monitors container registries and automatically updates your Kubernetes
 
 - **Dual Update Triggers**: Event-driven webhooks **or** registry polling for maximum flexibility
 - **Semver Policy Engine**: Intelligent update decisions based on semantic versioning (patch, minor, major, glob, force, all)
+- **Web UI Dashboard**: Modern web interface for viewing and approving updates with filtering, sorting, and pagination
 - **Approval Workflow**: Full HTTP API for approval requests with integration possibilities (Slack, webhooks, etc.)
 - **Rollback Support**: Manual rollback to previous versions with update history tracking and automatic rollback on failures
 - **Notifications**: Slack, Microsoft Teams, and generic webhook notifications for all deployment events
@@ -428,6 +429,49 @@ status:
   createdAt: "2025-11-06T01:00:00Z"
   lastUpdated: "2025-11-06T01:00:00Z"
 ```
+
+## Web UI Dashboard
+
+Headwind provides a modern web-based dashboard for viewing and managing update requests.
+
+### Accessing the Web UI
+
+The Web UI is available on port **8082** by default:
+
+```bash
+# Port forward to access locally
+kubectl port-forward -n headwind-system svc/headwind-ui 8082:8082
+
+# Open in browser
+open http://localhost:8082
+```
+
+### Features
+
+- **Dashboard View**: List all pending and completed UpdateRequests across all namespaces
+- **Filtering & Search**:
+  - Real-time search by resource name or image
+  - Filter by namespace
+  - Filter by resource kind (Deployment, StatefulSet, DaemonSet, HelmRelease)
+  - Filter by policy type
+- **Sorting**: Sort by date (newest/oldest first), namespace, or resource name
+- **Pagination**: View updates in pages of 20 items
+- **One-Click Actions**:
+  - Approve updates with confirmation
+  - Reject updates with reason (modal dialog)
+  - View detailed information for each update
+- **Real-time Notifications**: Toast notifications for success/error
+- **Responsive Design**: Works on desktop and mobile
+
+### Screenshots
+
+The Web UI provides:
+- **Stats Cards**: Quick overview of pending and completed updates
+- **Pending Updates Table**: Actionable list with approve/reject buttons
+- **Completed Updates**: Collapsible history of processed updates
+- **Detail View**: Full information about each UpdateRequest
+
+Access at `http://localhost:8082` when port-forwarded, or expose via Service/Ingress for remote access.
 
 ## API Endpoints
 

@@ -254,7 +254,52 @@ All workload controllers support the same set of Headwind annotations:
 
 **Status**: ✅ **FULLY FUNCTIONAL** - Complete Helm chart auto-discovery and update workflow operational
 
-#### 7. Metrics (`src/metrics/mod.rs`)
+#### 7. Web UI (`src/ui/`)
+- **Port**: 8082
+- **Purpose**: Web-based dashboard for viewing and managing UpdateRequests
+- **Tech Stack**:
+  - **Templating**: Maud 0.27 (Rust-based HTML templates, compile-time type safety)
+  - **CSS Framework**: DaisyUI + Tailwind CSS
+  - **Interactivity**: HTMX 1.9.10 (hypermedia-driven, minimal JavaScript)
+  - **Server**: Axum 0.8
+
+**Key Files**:
+- `src/ui/mod.rs` - Router and server initialization
+- `src/ui/routes.rs` - Route handlers (dashboard, detail, health)
+- `src/ui/templates.rs` - Maud templates with filtering/sorting/pagination
+- `src/static/css/custom.css` - Custom styles for status badges and UI elements
+
+**Routes**:
+- `GET /` - Dashboard view (all UpdateRequests)
+- `GET /updates/{namespace}/{name}` - Detail view for specific UpdateRequest
+- `GET /health` - Health check endpoint
+
+**Features**:
+- **Dashboard**: List all pending and completed UpdateRequests across namespaces
+- **Filtering**:
+  - Real-time search by resource name or image
+  - Filter by namespace (dropdown with unique values)
+  - Filter by resource kind (Deployment/StatefulSet/DaemonSet/HelmRelease)
+  - Filter by policy type (patch/minor/major/all/glob/none)
+- **Sorting**: By date (newest/oldest first), namespace A-Z, resource name A-Z
+- **Pagination**: 20 items per page with prev/next buttons
+- **Actions**:
+  - Approve updates with confirmation dialog (via HTMX POST to approval API)
+  - Reject updates with reason modal
+  - View detailed information
+- **Notifications**: Toast messages for success/error with auto-dismiss (3 seconds)
+- **Responsive**: Works on desktop and mobile devices
+
+**Implementation Details**:
+- Server-side rendered using Maud templates (type-safe Rust macros)
+- Client-side filtering/sorting/pagination via vanilla JavaScript (no framework)
+- HTMX handles approve/reject actions without page reload
+- Integrates with approval API (port 8081) for update execution
+- Data attributes on table rows enable efficient filtering (`data-namespace`, `data-kind`, `data-policy`, `data-created-at`)
+
+**Status**: ✅ **FULLY FUNCTIONAL** - Complete web interface with filtering, sorting, pagination, and actions
+
+#### 8. Metrics (`src/metrics/mod.rs`)
 - **Port**: 9090
 - **Purpose**: Prometheus metrics and health checks
 - **Metrics Available**:

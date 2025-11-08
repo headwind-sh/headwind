@@ -1,0 +1,59 @@
+/* Custom styles for Headwind Web UI */
+
+/* Logo and branding */
+.headwind-logo {
+  font-weight: 700;
+  font-size: 1.5rem;
+  color: #3b82f6;
+}
+
+/* Status badges */
+.status-pending {
+  @apply badge badge-warning;
+}
+
+.status-approved {
+  @apply badge badge-success;
+}
+
+.status-rejected {
+  @apply badge badge-error;
+}
+
+.status-completed {
+  @apply badge badge-info;
+}
+
+.status-failed {
+  @apply badge badge-error;
+}
+
+/* Version display */
+.version-display {
+  font-family: 'Courier New', monospace;
+  font-size: 0.9rem;
+  padding: 0.25rem 0.5rem;
+  background-color: #f3f4f6;
+  border-radius: 0.25rem;
+}
+
+/* Resource kind badges */
+.resource-kind {
+  @apply badge badge-outline;
+  margin-right: 0.5rem;
+}
+
+/* Action buttons */
+.action-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+/* Loading state */
+.htmx-request .loading-indicator {
+  display: inline-block;
+}
+
+.loading-indicator {
+  display: none;
+}

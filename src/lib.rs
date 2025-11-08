@@ -12,6 +12,7 @@ pub mod notifications;
 pub mod policy;
 pub mod polling;
 pub mod rollback;
+pub mod ui;
 pub mod webhook;
 
 // Re-export commonly used types for testing
