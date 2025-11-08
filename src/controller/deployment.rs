@@ -182,13 +182,6 @@ async fn reconcile(
             "Processing container {} with image {}:{}",
             container.name, image_name, current_tag
         );
-
-        // TODO: Query registry for available tags
-        // For now, we'll need webhook/polling events to trigger updates
-        // This will be implemented in a follow-up
-        debug!(
-            "Registry polling not yet implemented - updates will be triggered by webhooks/polling events"
-        );
     }
 
     Ok(Action::requeue(Duration::from_secs(60)))
