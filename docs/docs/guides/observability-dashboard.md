@@ -86,7 +86,17 @@ observability:
     database: "headwind"
 ```
 
-**Note**: InfluxDB support is experimental in the current release.
+**InfluxDB v2 Configuration**:
+```yaml
+observability:
+  metricsBackend: "influxdb"
+  influxdb:
+    enabled: true
+    url: "http://influxdb.monitoring.svc.cluster.local:8086"
+    org: "headwind"           # InfluxDB organization
+    bucket: "metrics"         # InfluxDB bucket name
+    token: "your-api-token"   # InfluxDB API token
+```
 
 ### 4. Live Metrics (Fallback)
 
@@ -173,14 +183,41 @@ Navigate to **Settings** in the Web UI and configure under **Observability / Met
 - **DaemonSets Watched**: Active DaemonSet monitoring
 - **Helm Releases Watched**: Active HelmRelease monitoring
 
+### Time-Series Charts
+
+When using Prometheus, VictoriaMetrics, or InfluxDB backends, the dashboard displays interactive time-series charts powered by Chart.js.
+
+**Charts Included**:
+
+1. **Updates Over Time** - 24-hour historical view:
+   - Approved updates (teal line)
+   - Applied updates (green line)
+   - Failed updates (red line)
+
+2. **Resources Watched** - 24-hour resource monitoring:
+   - Deployments watched (blue line)
+   - StatefulSets watched (indigo line)
+   - DaemonSets watched (purple line)
+   - Helm Releases watched (pink line)
+
+**Features**:
+- Interactive hover tooltips showing exact values
+- Smooth line charts with 5-minute data points
+- Responsive design adapts to screen size
+- Legend at bottom for better visibility
+- Auto-refresh updates charts every 30 seconds
+
+**Note**: Charts are only available with Prometheus, VictoriaMetrics, or InfluxDB backends. The "Live" fallback mode doesn't support historical data, so charts won't display.
+
 ### Auto-Refresh
 
-The observability dashboard auto-refreshes every 30 seconds to display the latest metrics.
+The observability dashboard auto-refreshes every 30 seconds to display the latest metrics and update charts.
 
 **Visual Indicators**:
 - Loading spinner while fetching data
 - Error messages if backend unavailable
 - Backend name displayed in alert banner
+- Charts automatically reload with new data
 
 ### Backend Status
 

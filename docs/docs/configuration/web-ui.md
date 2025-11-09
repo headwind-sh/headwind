@@ -65,7 +65,9 @@ data:
       influxdb:
         enabled: false
         url: "http://influxdb.monitoring.svc.cluster.local:8086"
-        database: "headwind"
+        org: "headwind"              # InfluxDB v2 organization
+        bucket: "metrics"            # InfluxDB v2 bucket
+        token: "your-api-token"      # InfluxDB v2 API token
 ```
 
 ### Mounting the ConfigMap
@@ -161,9 +163,11 @@ Configure refresh interval and pagination:
 | `observability.prometheus.url` | string | `http://prometheus-server.monitoring.svc.cluster.local:80` | Prometheus URL |
 | `observability.victoriametrics.enabled` | boolean | `false` | Enable VictoriaMetrics backend |
 | `observability.victoriametrics.url` | string | `http://victoria-metrics.monitoring.svc.cluster.local:8428` | VictoriaMetrics URL |
-| `observability.influxdb.enabled` | boolean | `false` | Enable InfluxDB backend |
-| `observability.influxdb.url` | string | `http://influxdb.monitoring.svc.cluster.local:8086` | InfluxDB URL |
-| `observability.influxdb.database` | string | `headwind` | InfluxDB database name |
+| `observability.influxdb.enabled` | boolean | `false` | Enable InfluxDB v2 backend |
+| `observability.influxdb.url` | string | `http://influxdb.monitoring.svc.cluster.local:8086` | InfluxDB v2 URL |
+| `observability.influxdb.org` | string | `headwind` | InfluxDB v2 organization |
+| `observability.influxdb.bucket` | string | `metrics` | InfluxDB v2 bucket name |
+| `observability.influxdb.token` | string | `headwind-test-token` | InfluxDB v2 API token |
 
 ## Service Configuration
 

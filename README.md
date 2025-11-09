@@ -601,10 +601,13 @@ The Web UI includes a comprehensive observability dashboard at `/observability` 
 
 #### Features
 
-- **Multi-Backend Support**: Automatically detects and connects to Prometheus, VictoriaMetrics, or InfluxDB
+- **Multi-Backend Support**: Automatically detects and connects to Prometheus, VictoriaMetrics, or InfluxDB v2
 - **Auto-Discovery**: Automatically finds available metrics backends in your cluster
 - **Fallback Mode**: Falls back to parsing `/metrics` endpoint if no backend is available
 - **Real-Time Data**: Auto-refreshes every 30 seconds
+- **Interactive Time-Series Charts**: Chart.js-powered visualizations showing 24-hour trends (Prometheus/VictoriaMetrics/InfluxDB only)
+  - Updates Over Time (approved, applied, failed)
+  - Resources Watched (deployments, statefulsets, daemonsets, helmreleases)
 - **Key Metrics Cards**:
   - Updates: Pending, Approved, Applied, Failed
   - Resources Watched: Deployments, StatefulSets, DaemonSets, HelmReleases
@@ -632,7 +635,9 @@ data:
       influxdb:
         enabled: false
         url: "http://influxdb.monitoring.svc.cluster.local:8086"
-        database: "headwind"
+        org: "headwind"              # InfluxDB v2 organization
+        bucket: "metrics"            # InfluxDB v2 bucket
+        token: "your-api-token"      # InfluxDB v2 API token
 ```
 
 **Backend Options:**
