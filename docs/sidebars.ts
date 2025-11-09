@@ -32,6 +32,7 @@ const sidebars: SidebarsConfig = {
         'configuration/approval-workflow',
         'configuration/notifications',
         'configuration/rollback',
+        'configuration/web-ui',
       ],
     },
 
@@ -42,6 +43,9 @@ const sidebars: SidebarsConfig = {
       items: [
         'guides/update-requests',
         'guides/kubectl-plugin',
+        'guides/web-ui',
+        'guides/web-ui-authentication',
+        'guides/observability-dashboard',
       ],
     },
 
