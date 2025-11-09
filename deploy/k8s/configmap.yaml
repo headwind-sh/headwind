@@ -1,0 +1,67 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: headwind-config
+  namespace: headwind-system
+  labels:
+    app: headwind
+data:
+  # Polling Configuration
+  # Enable registry polling for image updates (default: false)
+  polling.enabled: "false"
+  # Polling interval in seconds (default: 300)
+  polling.interval: "300"
+
+  # Helm Configuration
+  # Enable automatic Helm chart version discovery (default: true)
+  helm.autoDiscovery: "true"
+
+  # Controllers Configuration
+  # Enable Kubernetes controllers (default: true)
+  controllers.enabled: "true"
+
+  # Slack Notifications
+  # Enable Slack notifications (default: false)
+  slack.enabled: "false"
+  # Slack channel to post to (optional, uses webhook default if not set)
+  slack.channel: ""
+  # Slack username for bot (default: Headwind)
+  slack.username: "Headwind"
+  # Slack bot icon emoji (default: :sailboat:)
+  slack.iconEmoji: ":sailboat:"
+
+  # Microsoft Teams Notifications
+  # Enable Teams notifications (default: false)
+  teams.enabled: "false"
+
+  # Generic Webhook Notifications
+  # Enable generic webhook notifications (default: false)
+  webhook.enabled: "false"
+
+  # Observability / Metrics Storage
+  # Metrics backend: auto, prometheus, victoriametrics, influxdb, live (default: auto)
+  observability.metricsBackend: "auto"
+
+  # Prometheus Configuration
+  # Enable Prometheus as metrics backend (default: true)
+  observability.prometheus.enabled: "true"
+  # Prometheus server URL (default: http://prometheus-server.monitoring.svc.cluster.local:80)
+  observability.prometheus.url: "http://prometheus-server.monitoring.svc.cluster.local:80"
+
+  # VictoriaMetrics Configuration
+  # Enable VictoriaMetrics as metrics backend (default: true)
+  observability.victoriametrics.enabled: "true"
+  # VictoriaMetrics server URL (default: http://victoria-metrics.monitoring.svc.cluster.local:8428)
+  observability.victoriametrics.url: "http://victoria-metrics.monitoring.svc.cluster.local:8428"
+
+  # InfluxDB Configuration
+  # Enable InfluxDB as metrics backend (default: false)
+  observability.influxdb.enabled: "false"
+  # InfluxDB server URL (default: http://influxdb.monitoring.svc.cluster.local:8086)
+  observability.influxdb.url: "http://influxdb.monitoring.svc.cluster.local:8086"
+  # InfluxDB organization (default: headwind)
+  observability.influxdb.org: "headwind"
+  # InfluxDB bucket name (default: metrics)
+  observability.influxdb.bucket: "metrics"
+  # InfluxDB API token (default: headwind-test-token)
+  observability.influxdb.token: "headwind-test-token"

@@ -97,6 +97,8 @@ pub struct NotificationPayload {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub approval_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub ui_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub approved_by: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rejection_reason: Option<String>,
@@ -509,6 +511,7 @@ impl NotificationPayload {
             policy: None,
             requires_approval: None,
             approval_url: None,
+            ui_url: None,
             approved_by: None,
             rejection_reason: None,
             error_message: None,
@@ -529,6 +532,11 @@ impl NotificationPayload {
 
     pub fn with_approval_url(mut self, url: impl Into<String>) -> Self {
         self.approval_url = Some(url.into());
+        self
+    }
+
+    pub fn with_ui_url(mut self, url: impl Into<String>) -> Self {
+        self.ui_url = Some(url.into());
         self
     }
 
@@ -694,6 +702,20 @@ pub fn notify_update_request_created(
                 .unwrap_or(&"unknown".to_string())
         );
         payload = payload.with_approval_url(approval_url);
+    }
+
+    // Add UI URL for dashboard view
+    if let Ok(ui_base_url) = std::env::var("HEADWIND_UI_URL") {
+        let ui_url = format!(
+            "{}/updates/{}/{}",
+            ui_base_url,
+            deployment.namespace,
+            payload
+                .update_request_name
+                .as_ref()
+                .unwrap_or(&"unknown".to_string())
+        );
+        payload = payload.with_ui_url(ui_url);
     }
 
     notify(payload);

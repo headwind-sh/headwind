@@ -120,33 +120,43 @@ impl SlackNotifier {
             }));
         }
 
-        // Add approval button if approval URL is present
+        // Add action buttons if URLs are present
+        let mut action_elements = Vec::new();
+
+        // Add "View in Dashboard" button if UI URL is present
+        if let Some(ui_url) = &payload.ui_url {
+            action_elements.push(json!({
+                "type": "button",
+                "text": {
+                    "type": "plain_text",
+                    "text": "View in Dashboard",
+                    "emoji": true
+                },
+                "style": "primary",
+                "url": ui_url,
+                "action_id": "view_dashboard"
+            }));
+        }
+
+        // Add "Approve" button if approval URL is present
         if let Some(approval_url) = &payload.approval_url {
+            action_elements.push(json!({
+                "type": "button",
+                "text": {
+                    "type": "plain_text",
+                    "text": "Approve",
+                    "emoji": true
+                },
+                "url": approval_url,
+                "action_id": "approve_update"
+            }));
+        }
+
+        // Add action block if there are any buttons
+        if !action_elements.is_empty() {
             blocks.push(json!({
                 "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {
-                            "type": "plain_text",
-                            "text": "Approve",
-                            "emoji": true
-                        },
-                        "style": "primary",
-                        "url": approval_url,
-                        "action_id": "approve_update"
-                    },
-                    {
-                        "type": "button",
-                        "text": {
-                            "type": "plain_text",
-                            "text": "View Details",
-                            "emoji": true
-                        },
-                        "url": approval_url.replace("/approve", ""),
-                        "action_id": "view_details"
-                    }
-                ]
+                "elements": action_elements
             }));
         }
 

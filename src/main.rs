@@ -1,5 +1,6 @@
 use anyhow::Result;
-use headwind::{approval, controller, metrics, notifications, polling, webhook};
+use headwind::{approval, config, controller, metrics, notifications, polling, ui, webhook};
+use kube::Client;
 use tracing::info;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -14,6 +15,12 @@ async fn main() -> Result<()> {
         .init();
 
     info!("Starting Headwind - Kubernetes Update Operator");
+
+    // Create Kubernetes client
+    let client = Client::try_default().await?;
+
+    // Start configuration watcher for hot-reload
+    config::start_config_watcher(client.clone()).await;
 
     // Initialize notification manager
     notifications::init_notifications();
@@ -43,8 +50,18 @@ async fn main() -> Result<()> {
     // Initialize approval API server
     let approval_handle = approval::start_approval_server().await?;
 
+    // Initialize Web UI server
+    let ui_handle = tokio::spawn(async move {
+        if let Err(e) = ui::start_ui_server().await {
+            tracing::error!("Web UI server error: {}", e);
+        }
+    });
+
     // Start Kubernetes controllers
     let controller_handle = controller::start_controllers().await?;
+
+    // Start gauge updater to periodically update resource counts
+    let gauge_updater_handle = metrics::start_gauge_updater(client.clone());
 
     info!("Headwind is running");
 
@@ -54,7 +71,9 @@ async fn main() -> Result<()> {
         _ = webhook_handle => info!("Webhook server stopped"),
         _ = polling_handle => info!("Registry poller stopped"),
         _ = approval_handle => info!("Approval server stopped"),
+        _ = ui_handle => info!("Web UI server stopped"),
         _ = controller_handle => info!("Controllers stopped"),
+        _ = gauge_updater_handle => info!("Gauge updater stopped"),
     }
 
     Ok(())

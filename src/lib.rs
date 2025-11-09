@@ -4,6 +4,7 @@
 // the binary entrypoint in main.rs
 
 pub mod approval;
+pub mod config;
 pub mod controller;
 pub mod helm;
 pub mod metrics;
@@ -12,6 +13,7 @@ pub mod notifications;
 pub mod policy;
 pub mod polling;
 pub mod rollback;
+pub mod ui;
 pub mod webhook;
 
 // Re-export commonly used types for testing

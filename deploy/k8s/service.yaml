@@ -35,6 +35,23 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
+  name: headwind-ui
+  namespace: headwind-system
+  labels:
+    app: headwind
+spec:
+  type: ClusterIP
+  ports:
+  - name: ui
+    port: 80
+    targetPort: 8082
+    protocol: TCP
+  selector:
+    app: headwind
+---
+apiVersion: v1
+kind: Service
+metadata:
   name: headwind-metrics
   namespace: headwind-system
   labels:

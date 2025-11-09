@@ -93,9 +93,22 @@ impl TeamsNotifier {
             "markdown": true
         })];
 
-        // Build actions array for approval buttons
+        // Build actions array for buttons
         let mut potential_actions = Vec::new();
 
+        // Add "View in Dashboard" button if UI URL is present
+        if let Some(ui_url) = &payload.ui_url {
+            potential_actions.push(json!({
+                "@type": "OpenUri",
+                "name": "View in Dashboard",
+                "targets": [{
+                    "os": "default",
+                    "uri": ui_url
+                }]
+            }));
+        }
+
+        // Add "Approve" button if approval URL is present
         if let Some(approval_url) = &payload.approval_url {
             potential_actions.push(json!({
                 "@type": "OpenUri",
@@ -103,15 +116,6 @@ impl TeamsNotifier {
                 "targets": [{
                     "os": "default",
                     "uri": approval_url
-                }]
-            }));
-
-            potential_actions.push(json!({
-                "@type": "OpenUri",
-                "name": "View Details",
-                "targets": [{
-                    "os": "default",
-                    "uri": approval_url.replace("/approve", "")
                 }]
             }));
         }

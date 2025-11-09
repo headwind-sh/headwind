@@ -75,7 +75,7 @@ const config: Config = {
       title: 'Headwind',
       logo: {
         alt: 'Headwind Logo',
-        src: 'img/logo.svg',
+        src: 'img/logo.png',
       },
       items: [
         {

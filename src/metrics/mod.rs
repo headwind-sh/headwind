@@ -5,6 +5,8 @@ use prometheus::{Encoder, Histogram, HistogramOpts, IntCounter, IntGauge, Regist
 use tokio::task::JoinHandle;
 use tracing::info;
 
+pub mod client;
+
 lazy_static! {
     pub static ref REGISTRY: Registry = Registry::new();
 
@@ -372,4 +374,92 @@ async fn metrics_handler() -> impl IntoResponse {
 
 async fn health_check() -> impl IntoResponse {
     (StatusCode::OK, "OK")
+}
+
+/// Update resource gauge metrics by querying Kubernetes
+pub async fn update_resource_gauges(client: kube::Client) -> Result<()> {
+    use k8s_openapi::api::apps::v1::{DaemonSet, Deployment, StatefulSet};
+    use kube::api::{Api, ListParams};
+
+    use crate::models::policy::annotations;
+
+    // Count Deployments with Headwind annotations
+    let deployments: Api<Deployment> = Api::all(client.clone());
+    let deploy_list = deployments.list(&ListParams::default()).await?;
+    let deploy_count = deploy_list
+        .items
+        .iter()
+        .filter(|d| {
+            d.metadata
+                .annotations
+                .as_ref()
+                .and_then(|a| a.get(annotations::POLICY))
+                .is_some()
+        })
+        .count();
+    DEPLOYMENTS_WATCHED.set(deploy_count as i64);
+
+    // Count StatefulSets with Headwind annotations
+    let statefulsets: Api<StatefulSet> = Api::all(client.clone());
+    let sts_list = statefulsets.list(&ListParams::default()).await?;
+    let sts_count = sts_list
+        .items
+        .iter()
+        .filter(|s| {
+            s.metadata
+                .annotations
+                .as_ref()
+                .and_then(|a| a.get(annotations::POLICY))
+                .is_some()
+        })
+        .count();
+    STATEFULSETS_WATCHED.set(sts_count as i64);
+
+    // Count DaemonSets with Headwind annotations
+    let daemonsets: Api<DaemonSet> = Api::all(client.clone());
+    let ds_list = daemonsets.list(&ListParams::default()).await?;
+    let ds_count = ds_list
+        .items
+        .iter()
+        .filter(|d| {
+            d.metadata
+                .annotations
+                .as_ref()
+                .and_then(|a| a.get(annotations::POLICY))
+                .is_some()
+        })
+        .count();
+    DAEMONSETS_WATCHED.set(ds_count as i64);
+
+    // Count HelmReleases with Headwind annotations
+    use crate::models::HelmRelease;
+    let helm_releases: Api<HelmRelease> = Api::all(client);
+    let hr_list = helm_releases.list(&ListParams::default()).await?;
+    let hr_count = hr_list
+        .items
+        .iter()
+        .filter(|hr| {
+            hr.metadata
+                .annotations
+                .as_ref()
+                .and_then(|a| a.get(annotations::POLICY))
+                .is_some()
+        })
+        .count();
+    HELM_RELEASES_WATCHED.set(hr_count as i64);
+
+    Ok(())
+}
+
+/// Start a background task to periodically update resource gauges
+pub fn start_gauge_updater(client: kube::Client) -> JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
+        loop {
+            interval.tick().await;
+            if let Err(e) = update_resource_gauges(client.clone()).await {
+                tracing::warn!("Failed to update resource gauges: {}", e);
+            }
+        }
+    })
 }

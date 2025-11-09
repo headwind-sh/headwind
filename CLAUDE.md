@@ -254,7 +254,92 @@ All workload controllers support the same set of Headwind annotations:
 
 **Status**: ✅ **FULLY FUNCTIONAL** - Complete Helm chart auto-discovery and update workflow operational
 
-#### 7. Metrics (`src/metrics/mod.rs`)
+#### 7. Web UI (`src/ui/`)
+- **Port**: 8082
+- **Purpose**: Web-based dashboard for viewing and managing UpdateRequests
+- **Tech Stack**:
+  - **Templating**: Maud 0.27 (Rust-based HTML templates, compile-time type safety)
+  - **CSS Framework**: DaisyUI + Tailwind CSS
+  - **Interactivity**: HTMX 1.9.10 (hypermedia-driven, minimal JavaScript)
+  - **Server**: Axum 0.8
+
+**Key Files**:
+- `src/ui/mod.rs` - Router and server initialization
+- `src/ui/routes.rs` - Route handlers (dashboard, detail, health)
+- `src/ui/templates.rs` - Maud templates with filtering/sorting/pagination
+- `src/ui/auth.rs` - Multi-mode authentication and audit logging
+- `src/static/css/custom.css` - Custom styles for status badges and UI elements
+
+**Routes**:
+- `GET /` - Dashboard view (all UpdateRequests)
+- `GET /updates/{namespace}/{name}` - Detail view for specific UpdateRequest
+- `GET /health` - Health check endpoint
+
+**Features**:
+- **Dashboard**: List all pending and completed UpdateRequests across namespaces
+- **Filtering**:
+  - Real-time search by resource name or image
+  - Filter by namespace (dropdown with unique values)
+  - Filter by resource kind (Deployment/StatefulSet/DaemonSet/HelmRelease)
+  - Filter by policy type (patch/minor/major/all/glob/none)
+- **Sorting**: By date (newest/oldest first), namespace A-Z, resource name A-Z
+- **Pagination**: 20 items per page with prev/next buttons
+- **Actions**:
+  - Approve updates with confirmation dialog (via HTMX POST to approval API)
+  - Reject updates with reason modal
+  - View detailed information
+- **Notifications**: Toast messages for success/error with auto-dismiss (3 seconds)
+- **Responsive**: Works on desktop and mobile devices
+
+**Implementation Details**:
+- Server-side rendered using Maud templates (type-safe Rust macros)
+- Client-side filtering/sorting/pagination via vanilla JavaScript (no framework)
+- HTMX handles approve/reject actions without page reload
+- Integrates with approval API (port 8081) for update execution
+- Data attributes on table rows enable efficient filtering (`data-namespace`, `data-kind`, `data-policy`, `data-created-at`)
+
+**Authentication** (`src/ui/auth.rs`):
+Headwind Web UI supports four authentication modes via `HEADWIND_UI_AUTH_MODE` environment variable:
+
+1. **None (default)**: No authentication
+   - All actions logged as "web-ui-user"
+   - Suitable for development or trusted environments
+
+2. **Simple**: Username from HTTP header
+   - Set `HEADWIND_UI_AUTH_MODE=simple`
+   - Reads username from `X-User` header
+   - Trusts the provided username (requires auth proxy upstream)
+   - Use case: Basic auth proxy (e.g., nginx with auth_request)
+
+3. **Token**: Kubernetes TokenReview validation
+   - Set `HEADWIND_UI_AUTH_MODE=token`
+   - Validates bearer tokens via Kubernetes TokenReview API
+   - Extracts authenticated username from token
+   - Requires RBAC permission: `authentication.k8s.io/tokenreviews` create
+   - Use case: Service account tokens, kubectl authentication
+   - Example: `curl -H "Authorization: Bearer $(cat token.txt)" http://localhost:8082/`
+
+4. **Proxy**: Ingress/proxy authentication headers
+   - Set `HEADWIND_UI_AUTH_MODE=proxy`
+   - Reads username from configurable header (default: `X-Forwarded-User`)
+   - Configure header name via `HEADWIND_UI_PROXY_HEADER` environment variable
+   - Use case: Kubernetes ingress with external auth (e.g., oauth2-proxy, Authelia)
+
+**Audit Logging**:
+- All approval/rejection actions logged with username, action, resource details, timestamp
+- Dedicated log target: `headwind::audit` (structured JSON logging)
+- Audit log fields: `timestamp`, `username`, `action`, `resource_type`, `namespace`, `name`, `result`, `reason`
+- Example: `{"timestamp":"2025-11-08T23:00:00Z","username":"alice","action":"approve","resource_type":"Deployment","namespace":"default","name":"test-approval-nginx-1-28-0","result":"success"}`
+
+**Technical Implementation**:
+- Uses Axum 0.8 native async traits (`FromRequestParts` trait) without `#[async_trait]` macro
+- `UserIdentity` extractor automatically handles authentication based on configured mode
+- TokenReview integration validates Kubernetes tokens and extracts service account usernames
+- All route handlers accept `UserIdentity` parameter for automatic user extraction
+
+**Status**: ✅ **FULLY FUNCTIONAL** - Complete web interface with filtering, sorting, pagination, actions, and multi-mode authentication
+
+#### 8. Metrics (`src/metrics/mod.rs`)
 - **Port**: 9090
 - **Purpose**: Prometheus metrics and health checks
 - **Metrics Available**:

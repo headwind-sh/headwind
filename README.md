@@ -8,10 +8,21 @@ Headwind monitors container registries and automatically updates your Kubernetes
 
 - **Dual Update Triggers**: Event-driven webhooks **or** registry polling for maximum flexibility
 - **Semver Policy Engine**: Intelligent update decisions based on semantic versioning (patch, minor, major, glob, force, all)
+- **Web UI Dashboard**: Modern web interface with:
+  - Real-time filtering, sorting, and pagination
+  - Multi-mode authentication (none, simple header, Kubernetes token, proxy/ingress)
+  - Audit logging for all approval/rejection actions
+  - Auto-refresh every 30 seconds
+  - Responsive design for desktop and mobile
+- **Observability Dashboard**: Built-in metrics visualization with:
+  - Multi-backend support (Prometheus, VictoriaMetrics, InfluxDB)
+  - Auto-discovery of available backends
+  - Real-time metrics cards and time-series data
+  - Hot-reload configuration management
 - **Approval Workflow**: Full HTTP API for approval requests with integration possibilities (Slack, webhooks, etc.)
 - **Rollback Support**: Manual rollback to previous versions with update history tracking and automatic rollback on failures
-- **Notifications**: Slack, Microsoft Teams, and generic webhook notifications for all deployment events
-- **Full Observability**: Prometheus metrics, distributed tracing, and structured logging
+- **Notifications**: Slack, Microsoft Teams, and generic webhook notifications with dashboard links for all deployment events
+- **Full Observability**: Prometheus metrics (35+ metrics), distributed tracing, and structured logging
 - **Resource Support**:
   - Kubernetes Deployments ✅
   - Kubernetes StatefulSets ✅
@@ -429,6 +440,246 @@ status:
   lastUpdated: "2025-11-06T01:00:00Z"
 ```
 
+## Web UI Dashboard
+
+Headwind provides a modern web-based dashboard for viewing and managing update requests.
+
+### Accessing the Web UI
+
+The Web UI is available on port **8082** by default:
+
+```bash
+# Port forward to access locally
+kubectl port-forward -n headwind-system svc/headwind-ui 8082:8082
+
+# Open in browser
+open http://localhost:8082
+```
+
+### Features
+
+- **Dashboard View**: List all pending and completed UpdateRequests across all namespaces
+- **Filtering & Search**:
+  - Real-time search by resource name or image
+  - Filter by namespace
+  - Filter by resource kind (Deployment, StatefulSet, DaemonSet, HelmRelease)
+  - Filter by policy type
+- **Sorting**: Sort by date (newest/oldest first), namespace, or resource name
+- **Pagination**: View updates in pages of 20 items
+- **One-Click Actions**:
+  - Approve updates with confirmation
+  - Reject updates with reason (modal dialog)
+  - View detailed information for each update
+- **Real-time Notifications**: Toast notifications for success/error
+- **Responsive Design**: Works on desktop and mobile
+
+### Screenshots
+
+The Web UI provides:
+- **Stats Cards**: Quick overview of pending and completed updates
+- **Pending Updates Table**: Actionable list with approve/reject buttons
+- **Completed Updates**: Collapsible history of processed updates
+- **Detail View**: Full information about each UpdateRequest
+
+Access at `http://localhost:8082` when port-forwarded, or expose via Service/Ingress for remote access.
+
+### Authentication
+
+The Web UI supports four authentication modes configured via the `HEADWIND_UI_AUTH_MODE` environment variable:
+
+#### 1. None (Default)
+No authentication required. All actions are logged as "web-ui-user".
+
+```yaml
+env:
+  - name: HEADWIND_UI_AUTH_MODE
+    value: "none"
+```
+
+#### 2. Simple Header Authentication
+Reads username from `X-User` HTTP header. Suitable for use behind an authenticating reverse proxy.
+
+```yaml
+env:
+  - name: HEADWIND_UI_AUTH_MODE
+    value: "simple"
+```
+
+Example usage:
+```bash
+curl -H "X-User: alice" http://localhost:8082/
+```
+
+#### 3. Kubernetes Token Authentication
+Validates bearer tokens using Kubernetes TokenReview API and extracts the authenticated username.
+
+```yaml
+env:
+  - name: HEADWIND_UI_AUTH_MODE
+    value: "token"
+```
+
+**Requirements**:
+- RBAC permission for `authentication.k8s.io/tokenreviews` (already included in `deploy/k8s/rbac.yaml`)
+
+Example usage:
+```bash
+# Get service account token
+TOKEN=$(kubectl create token my-service-account -n default)
+
+# Access Web UI with token
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8082/
+```
+
+#### 4. Proxy/Ingress Authentication
+Reads username from a configurable HTTP header set by an ingress controller or authentication proxy (e.g., oauth2-proxy, Authelia).
+
+```yaml
+env:
+  - name: HEADWIND_UI_AUTH_MODE
+    value: "proxy"
+  - name: HEADWIND_UI_PROXY_HEADER  # Optional, defaults to X-Forwarded-User
+    value: "X-Auth-Request-User"
+```
+
+### Audit Logging
+
+All approval and rejection actions are logged with structured audit information:
+
+```json
+{
+  "timestamp": "2025-11-08T23:00:00Z",
+  "username": "alice",
+  "action": "approve",
+  "resource_type": "Deployment",
+  "namespace": "default",
+  "name": "nginx-update-1-26-0",
+  "result": "success"
+}
+```
+
+Audit logs use the dedicated log target `headwind::audit` and can be filtered with:
+
+```bash
+kubectl logs -n headwind-system deployment/headwind | grep headwind::audit
+```
+
+### Auto-Refresh
+
+The dashboard automatically refreshes every 30 seconds to show the latest UpdateRequests. This can be disabled by clicking the "Auto-refresh" toggle in the UI.
+
+### Configuration Management
+
+The Web UI supports hot-reload configuration via ConfigMap. Changes to the ConfigMap are detected automatically without requiring pod restarts.
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: headwind-ui-config
+  namespace: headwind-system
+data:
+  config.yaml: |
+    refresh_interval: 30
+    max_items_per_page: 20
+```
+
+Mount the ConfigMap in the deployment:
+```yaml
+volumeMounts:
+  - name: ui-config
+    mountPath: /etc/headwind/ui
+volumes:
+  - name: ui-config
+    configMap:
+      name: headwind-ui-config
+```
+
+### Observability Dashboard
+
+The Web UI includes a comprehensive observability dashboard at `/observability` with real-time metrics visualization.
+
+#### Features
+
+- **Multi-Backend Support**: Automatically detects and connects to Prometheus, VictoriaMetrics, or InfluxDB v2
+- **Auto-Discovery**: Automatically finds available metrics backends in your cluster
+- **Fallback Mode**: Falls back to parsing `/metrics` endpoint if no backend is available
+- **Real-Time Data**: Auto-refreshes every 30 seconds
+- **Interactive Time-Series Charts**: Chart.js-powered visualizations showing 24-hour trends (Prometheus/VictoriaMetrics/InfluxDB only)
+  - Updates Over Time (approved, applied, failed)
+  - Resources Watched (deployments, statefulsets, daemonsets, helmreleases)
+- **Key Metrics Cards**:
+  - Updates: Pending, Approved, Applied, Failed
+  - Resources Watched: Deployments, StatefulSets, DaemonSets, HelmReleases
+
+#### Configuration
+
+Configure metrics backend via ConfigMap:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: headwind-config
+  namespace: headwind-system
+data:
+  config.yaml: |
+    observability:
+      metricsBackend: "auto"  # auto | prometheus | victoriametrics | influxdb | live
+      prometheus:
+        enabled: true
+        url: "http://prometheus-server.monitoring.svc.cluster.local:80"
+      victoriametrics:
+        enabled: false
+        url: "http://victoria-metrics.monitoring.svc.cluster.local:8428"
+      influxdb:
+        enabled: false
+        url: "http://influxdb.monitoring.svc.cluster.local:8086"
+        org: "headwind"              # InfluxDB v2 organization
+        bucket: "metrics"            # InfluxDB v2 bucket
+        token: "your-api-token"      # InfluxDB v2 API token
+```
+
+**Backend Options:**
+- `auto` - Automatically detects available backend (default)
+- `prometheus` - Use Prometheus for metrics storage and queries
+- `victoriametrics` - Use VictoriaMetrics (Prometheus-compatible API)
+- `influxdb` - Use InfluxDB v2 for time-series data
+- `live` - Parse metrics directly from `/metrics` endpoint (no external backend)
+
+**Auto-Discovery Priority:** Prometheus → VictoriaMetrics → InfluxDB → Live
+
+#### API Endpoints
+
+```bash
+# Get current metrics from configured backend
+curl http://localhost:8082/api/v1/metrics
+
+# Get 24-hour time-series data for specific metric
+curl http://localhost:8082/api/v1/metrics/timeseries/headwind_updates_pending
+```
+
+#### Prometheus Integration Example
+
+Deploy Prometheus to scrape Headwind metrics:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: monitoring
+data:
+  prometheus.yml: |
+    scrape_configs:
+      - job_name: 'headwind'
+        static_configs:
+          - targets: ['headwind-metrics.headwind-system.svc.cluster.local:9090']
+        scrape_interval: 15s
+```
+
+The observability dashboard will automatically detect Prometheus and display metrics from it.
+
 ## API Endpoints
 
 ### Approval API (Port 8081)
@@ -602,6 +853,10 @@ env:
   value: "10"
 - name: WEBHOOK_MAX_RETRIES  # Optional: max retries (default: 3)
   value: "3"
+
+# Dashboard Integration
+- name: HEADWIND_UI_URL  # Optional: adds "View in Dashboard" links to notifications
+  value: "https://headwind.example.com"  # or http://localhost:8082 for local
 ```
 
 #### Notification Events
@@ -622,7 +877,8 @@ Headwind sends notifications for the following events:
 Slack notifications use Block Kit for rich formatting with:
 - Color-coded messages by event type
 - Deployment details (namespace, name, images)
-- Interactive approval buttons (when approval URL is available)
+- Interactive "View in Dashboard" button (when `HEADWIND_UI_URL` is set)
+- Interactive "Approve" button (when approval API is available)
 - Timestamp with relative time formatting
 
 #### Microsoft Teams Integration
@@ -630,7 +886,8 @@ Slack notifications use Block Kit for rich formatting with:
 Teams notifications use Adaptive Cards with:
 - Color themes matching event severity
 - Structured fact display
-- Action buttons for approvals
+- "View in Dashboard" action button (when `HEADWIND_UI_URL` is set)
+- "Approve" action button (when approval API is available)
 - Kubernetes logo branding
 
 #### Generic Webhook Format
