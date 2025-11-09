@@ -655,7 +655,8 @@ async fn create_update_request(
         _ => UpdatePolicyType::None,
     };
 
-    let ur_name = format!("{}-{}", name, chrono::Utc::now().timestamp());
+    // Generate deterministic name for deduplication (without timestamp)
+    let request_name = format!("{}-{}", name, new_version.replace(['.', ':'], "-"));
 
     let spec = UpdateRequestSpec {
         target_ref: TargetRef {
@@ -685,7 +686,7 @@ async fn create_update_request(
 
     let update_request = UpdateRequest {
         metadata: ObjectMeta {
-            name: Some(ur_name.clone()),
+            name: Some(request_name.clone()),
             namespace: Some(namespace.to_string()),
             ..Default::default()
         },
@@ -693,16 +694,54 @@ async fn create_update_request(
         status: Some(status),
     };
 
-    info!(
-        "Creating UpdateRequest {} for HelmRelease {}/{}",
-        ur_name, namespace, name
-    );
+    // Check if UpdateRequest already exists
+    match update_requests.get(&request_name).await {
+        Ok(existing) => {
+            debug!(
+                "UpdateRequest {}/{} already exists, skipping creation",
+                namespace, request_name
+            );
+            // Check if it's in a terminal state (Completed, Rejected, Failed)
+            if let Some(status) = &existing.status
+                && (status.phase == UpdatePhase::Completed
+                    || status.phase == UpdatePhase::Rejected
+                    || status.phase == UpdatePhase::Failed)
+            {
+                info!(
+                    "Existing UpdateRequest is in terminal state ({:?}), creating new one",
+                    status.phase
+                );
+                // Delete the old one and create a new one
+                update_requests
+                    .delete(&request_name, &Default::default())
+                    .await?;
+                update_requests
+                    .create(&PostParams::default(), &update_request)
+                    .await?;
 
-    update_requests
-        .create(&PostParams::default(), &update_request)
-        .await?;
+                info!(
+                    "Created UpdateRequest {} for HelmRelease {}/{}",
+                    request_name, namespace, name
+                );
+            }
+        },
+        Err(kube::Error::Api(err)) if err.code == 404 => {
+            // Doesn't exist, create it
+            update_requests
+                .create(&PostParams::default(), &update_request)
+                .await?;
+            info!(
+                "Created UpdateRequest {} for HelmRelease {}/{}",
+                request_name, namespace, name
+            );
+        },
+        Err(e) => {
+            error!("Failed to check for existing UpdateRequest: {}", e);
+            return Err(e);
+        },
+    }
 
-    Ok(ur_name)
+    Ok(request_name)
 }
 
 /// Handle a Helm chart update event from webhooks

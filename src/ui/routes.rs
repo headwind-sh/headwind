@@ -16,6 +16,7 @@ use tracing::{error, info};
 
 use crate::config::HeadwindConfig;
 use crate::models::crd::UpdateRequest;
+use crate::ui::auth::{AuditLogEntry, UserIdentity};
 
 use super::templates::{self, UpdateRequestView};
 
@@ -708,11 +709,14 @@ pub struct BulkOperationResponse {
     errors: Vec<String>,
 }
 
-pub async fn bulk_approve(Json(request): Json<BulkApproveRequest>) -> impl IntoResponse {
+pub async fn bulk_approve(
+    user: UserIdentity,
+    Json(request): Json<BulkApproveRequest>,
+) -> impl IntoResponse {
     info!(
         "Bulk approving {} updates by {}",
         request.updates.len(),
-        request.approver
+        user.username
     );
 
     let mut success_count = 0;
@@ -740,6 +744,18 @@ pub async fn bulk_approve(Json(request): Json<BulkApproveRequest>) -> impl IntoR
                 if response.status().is_success() {
                     success_count += 1;
                     info!("Successfully approved {}/{}", update.namespace, update.name);
+
+                    // Log successful bulk approval
+                    AuditLogEntry::new(
+                        user.username.clone(),
+                        "bulk_approve".to_string(),
+                        "UpdateRequest".to_string(),
+                        update.namespace.clone(),
+                        update.name.clone(),
+                        "success".to_string(),
+                        None,
+                    )
+                    .log();
                 } else {
                     failed_count += 1;
                     let error_msg = format!(
@@ -753,6 +769,18 @@ pub async fn bulk_approve(Json(request): Json<BulkApproveRequest>) -> impl IntoR
                         "Failed to approve {}/{}: {}",
                         update.namespace, update.name, error_msg
                     );
+
+                    // Log failed bulk approval
+                    AuditLogEntry::new(
+                        user.username.clone(),
+                        "bulk_approve".to_string(),
+                        "UpdateRequest".to_string(),
+                        update.namespace.clone(),
+                        update.name.clone(),
+                        "failed".to_string(),
+                        Some(error_msg),
+                    )
+                    .log();
                 }
             },
             Err(e) => {
@@ -763,6 +791,18 @@ pub async fn bulk_approve(Json(request): Json<BulkApproveRequest>) -> impl IntoR
                     "Failed to approve {}/{}: {}",
                     update.namespace, update.name, e
                 );
+
+                // Log failed bulk approval
+                AuditLogEntry::new(
+                    user.username.clone(),
+                    "bulk_approve".to_string(),
+                    "UpdateRequest".to_string(),
+                    update.namespace.clone(),
+                    update.name.clone(),
+                    "failed".to_string(),
+                    Some(error_msg),
+                )
+                .log();
             },
         }
     }
@@ -783,10 +823,14 @@ pub struct BulkRejectRequest {
     reason: String,
 }
 
-pub async fn bulk_reject(Json(request): Json<BulkRejectRequest>) -> impl IntoResponse {
+pub async fn bulk_reject(
+    user: UserIdentity,
+    Json(request): Json<BulkRejectRequest>,
+) -> impl IntoResponse {
     info!(
-        "Bulk rejecting {} updates with reason: {}",
+        "Bulk rejecting {} updates by {} with reason: {}",
         request.updates.len(),
+        user.username,
         request.reason
     );
 
@@ -815,6 +859,18 @@ pub async fn bulk_reject(Json(request): Json<BulkRejectRequest>) -> impl IntoRes
                 if response.status().is_success() {
                     success_count += 1;
                     info!("Successfully rejected {}/{}", update.namespace, update.name);
+
+                    // Log successful bulk rejection
+                    AuditLogEntry::new(
+                        user.username.clone(),
+                        "bulk_reject".to_string(),
+                        "UpdateRequest".to_string(),
+                        update.namespace.clone(),
+                        update.name.clone(),
+                        "success".to_string(),
+                        Some(request.reason.clone()),
+                    )
+                    .log();
                 } else {
                     failed_count += 1;
                     let error_msg = format!(
@@ -828,6 +884,18 @@ pub async fn bulk_reject(Json(request): Json<BulkRejectRequest>) -> impl IntoRes
                         "Failed to reject {}/{}: {}",
                         update.namespace, update.name, error_msg
                     );
+
+                    // Log failed bulk rejection
+                    AuditLogEntry::new(
+                        user.username.clone(),
+                        "bulk_reject".to_string(),
+                        "UpdateRequest".to_string(),
+                        update.namespace.clone(),
+                        update.name.clone(),
+                        "failed".to_string(),
+                        Some(error_msg),
+                    )
+                    .log();
                 }
             },
             Err(e) => {
@@ -838,6 +906,18 @@ pub async fn bulk_reject(Json(request): Json<BulkRejectRequest>) -> impl IntoRes
                     "Failed to reject {}/{}: {}",
                     update.namespace, update.name, e
                 );
+
+                // Log failed bulk rejection
+                AuditLogEntry::new(
+                    user.username.clone(),
+                    "bulk_reject".to_string(),
+                    "UpdateRequest".to_string(),
+                    update.namespace.clone(),
+                    update.name.clone(),
+                    "failed".to_string(),
+                    Some(error_msg),
+                )
+                .log();
             },
         }
     }
@@ -969,9 +1049,12 @@ pub struct ApprovalForm {
 
 /// Approve an individual update request (proxy to approval API)
 pub async fn approve_update(
+    user: UserIdentity,
     Path((namespace, name)): Path<(String, String)>,
     Form(form): Form<ApprovalForm>,
 ) -> impl IntoResponse {
+    let approver = user.username.clone();
+
     let approval_url = format!(
         "http://localhost:8081/api/v1/updates/{}/{}/approve",
         namespace, name
@@ -991,17 +1074,59 @@ pub async fn approve_update(
         Ok(response) => {
             let status = response.status();
             match response.json::<serde_json::Value>().await {
-                Ok(body) => (status, Json(body)),
-                Err(_) => (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({"error": "Failed to parse response"})),
-                ),
+                Ok(body) => {
+                    // Log successful approval
+                    AuditLogEntry::new(
+                        approver,
+                        "approve".to_string(),
+                        "UpdateRequest".to_string(),
+                        namespace.clone(),
+                        name.clone(),
+                        "success".to_string(),
+                        None,
+                    )
+                    .log();
+
+                    (status, Json(body))
+                },
+                Err(_) => {
+                    // Log failed approval (parse error)
+                    AuditLogEntry::new(
+                        approver,
+                        "approve".to_string(),
+                        "UpdateRequest".to_string(),
+                        namespace,
+                        name,
+                        "failed".to_string(),
+                        Some("Failed to parse approval API response".to_string()),
+                    )
+                    .log();
+
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({"error": "Failed to parse response"})),
+                    )
+                },
             }
         },
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        ),
+        Err(e) => {
+            // Log failed approval (request error)
+            AuditLogEntry::new(
+                approver,
+                "approve".to_string(),
+                "UpdateRequest".to_string(),
+                namespace,
+                name,
+                "failed".to_string(),
+                Some(format!("Failed to call approval API: {}", e)),
+            )
+            .log();
+
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": e.to_string()})),
+            )
+        },
     }
 }
 
@@ -1013,9 +1138,13 @@ pub struct RejectionForm {
 
 /// Reject an individual update request (proxy to approval API)
 pub async fn reject_update(
+    user: UserIdentity,
     Path((namespace, name)): Path<(String, String)>,
     Form(form): Form<RejectionForm>,
 ) -> impl IntoResponse {
+    let approver = user.username.clone();
+    let rejection_reason = form.reason.clone();
+
     let approval_url = format!(
         "http://localhost:8081/api/v1/updates/{}/{}/reject",
         namespace, name
@@ -1036,16 +1165,58 @@ pub async fn reject_update(
         Ok(response) => {
             let status = response.status();
             match response.json::<serde_json::Value>().await {
-                Ok(body) => (status, Json(body)),
-                Err(_) => (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({"error": "Failed to parse response"})),
-                ),
+                Ok(body) => {
+                    // Log successful rejection
+                    AuditLogEntry::new(
+                        approver,
+                        "reject".to_string(),
+                        "UpdateRequest".to_string(),
+                        namespace.clone(),
+                        name.clone(),
+                        "success".to_string(),
+                        rejection_reason,
+                    )
+                    .log();
+
+                    (status, Json(body))
+                },
+                Err(_) => {
+                    // Log failed rejection (parse error)
+                    AuditLogEntry::new(
+                        approver,
+                        "reject".to_string(),
+                        "UpdateRequest".to_string(),
+                        namespace,
+                        name,
+                        "failed".to_string(),
+                        Some("Failed to parse approval API response".to_string()),
+                    )
+                    .log();
+
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({"error": "Failed to parse response"})),
+                    )
+                },
             }
         },
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        ),
+        Err(e) => {
+            // Log failed rejection (request error)
+            AuditLogEntry::new(
+                approver,
+                "reject".to_string(),
+                "UpdateRequest".to_string(),
+                namespace,
+                name,
+                "failed".to_string(),
+                Some(format!("Failed to call approval API: {}", e)),
+            )
+            .log();
+
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": e.to_string()})),
+            )
+        },
     }
 }

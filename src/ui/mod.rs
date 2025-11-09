@@ -5,6 +5,7 @@ use axum::{
 use std::net::SocketAddr;
 use tracing::info;
 
+pub mod auth;
 pub mod routes;
 pub mod static_files;
 pub mod templates;

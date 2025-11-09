@@ -352,19 +352,18 @@ async fn create_update_request(
 ) -> Result<(), kube::Error> {
     let update_requests: Api<UpdateRequest> = Api::namespaced(client, namespace);
 
-    // Generate a unique name for the update request
+    // Generate a deterministic name for the update request (without timestamp for deduplication)
     let (_, current_tag) = parse_image(current_image)?;
     let (_, new_tag) = parse_image(new_image)?;
-    let ur_name = format!(
-        "{}-{}-{}-{}",
+    let request_name = format!(
+        "{}-{}-{}",
         deployment_name,
         container_name,
-        new_tag.replace(['.', ':'], "-"),
-        chrono::Utc::now().timestamp()
+        new_tag.replace(['.', ':'], "-")
     );
 
     let update_request = UpdateRequest::new(
-        &ur_name,
+        &request_name,
         UpdateRequestSpec {
             target_ref: TargetRef {
                 api_version: "apps/v1".to_string(),
@@ -386,16 +385,56 @@ async fn create_update_request(
         },
     );
 
-    info!(
-        "Creating UpdateRequest {} for deployment {}/{}",
-        ur_name, namespace, deployment_name
-    );
+    // Check if UpdateRequest already exists
+    match update_requests.get(&request_name).await {
+        Ok(existing) => {
+            debug!(
+                "UpdateRequest {}/{} already exists, skipping creation",
+                namespace, request_name
+            );
+            // Check if it's in a terminal state (Completed, Rejected, Failed)
+            if let Some(status) = &existing.status {
+                use crate::models::crd::UpdatePhase;
+                if status.phase == UpdatePhase::Completed
+                    || status.phase == UpdatePhase::Rejected
+                    || status.phase == UpdatePhase::Failed
+                {
+                    info!(
+                        "Existing UpdateRequest is in terminal state ({:?}), creating new one",
+                        status.phase
+                    );
+                    // Delete the old one and create a new one
+                    update_requests
+                        .delete(&request_name, &Default::default())
+                        .await?;
+                    update_requests
+                        .create(&PostParams::default(), &update_request)
+                        .await?;
 
-    update_requests
-        .create(&PostParams::default(), &update_request)
-        .await?;
+                    info!(
+                        "Created UpdateRequest {} for deployment {}/{}",
+                        request_name, namespace, deployment_name
+                    );
+                }
+            }
+        },
+        Err(kube::Error::Api(err)) if err.code == 404 => {
+            // Doesn't exist, create it
+            update_requests
+                .create(&PostParams::default(), &update_request)
+                .await?;
+            info!(
+                "Created UpdateRequest {} for deployment {}/{}",
+                request_name, namespace, deployment_name
+            );
+        },
+        Err(e) => {
+            error!("Failed to check for existing UpdateRequest: {}", e);
+            return Err(e);
+        },
+    }
 
-    // Send notification about update request creation
+    // Send notification about update request creation (only if it was newly created)
     let deployment_info = DeploymentInfo {
         name: deployment_name.to_string(),
         namespace: namespace.to_string(),
@@ -408,7 +447,7 @@ async fn create_update_request(
         deployment_info,
         format!("{:?}", policy),
         true, // require_approval is true in this flow
-        ur_name.clone(),
+        request_name.clone(),
     );
 
     Ok(())
