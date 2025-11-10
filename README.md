@@ -55,8 +55,8 @@ Pull the latest release from GitHub Container Registry or Google Artifact Regist
 # From GitHub Container Registry (ghcr.io)
 docker pull ghcr.io/headwind-sh/headwind:latest
 
-# Or from Google Artifact Registry (if you have access)
-docker pull us-docker.pkg.dev/YOUR_PROJECT/headwind/headwind:latest
+# Or from Google Artifact Registry
+docker pull us-docker.pkg.dev/secret-node-477601-s8/headwind/headwind:latest
 
 # Apply Kubernetes manifests
 kubectl apply -f deploy/k8s/namespace.yaml
@@ -75,7 +75,7 @@ kubectl apply -f deploy/k8s/service.yaml
 
 **Image Locations:**
 - **GitHub Container Registry**: `ghcr.io/headwind-sh/headwind:VERSION`
-- **Google Artifact Registry**: `us-docker.pkg.dev/PROJECT/headwind/headwind:VERSION`
+- **Google Artifact Registry**: `us-docker.pkg.dev/secret-node-477601-s8/headwind/headwind:VERSION`
 
 **Available Tags:**
 - `latest` - Latest stable release
