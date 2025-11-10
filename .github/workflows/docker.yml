@@ -29,6 +29,7 @@ jobs:
           # Poll for release workflow completion
           for i in {1..30}; do
             STATUS=$(gh run list --workflow=release.yml \
+              --repo ${{ github.repository }} \
               --branch=${GITHUB_REF#refs/tags/} --limit=1 \
               --json status --jq '.[0].status')
             if [ "$STATUS" = "completed" ]; then
