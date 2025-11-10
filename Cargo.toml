@@ -77,6 +77,10 @@ tokio-stream = "0.1.17"
 # No additional test dependencies needed yet - tests use core functionality
 
 # cargo-release configuration
+# Target-specific dependencies for cross-compilation
+[target.aarch64-unknown-linux-gnu.dependencies]
+openssl = { version = "0.10", features = ["vendored"] }
+
 [package.metadata.release]
 # Version bumping
 pre-release-commit-message = "chore: release v{{version}}"
