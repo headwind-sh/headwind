@@ -75,3 +75,23 @@ tokio-stream = "0.1.17"
 
 [dev-dependencies]
 # No additional test dependencies needed yet - tests use core functionality
+
+# cargo-release configuration
+[package.metadata.release]
+# Version bumping
+pre-release-commit-message = "chore: release v{{version}}"
+tag-message = "chore: release v{{version}}"
+tag-name = "v{{version}}"
+tag-prefix = "v"
+sign-commit = false
+sign-tag = false
+push = true
+publish = false  # We publish via GitHub Actions, not cargo-release
+# Pre-release replacements
+pre-release-replacements = [
+  { file = "CHANGELOG.md", search = "Unreleased", replace = "{{version}}", min = 1 },
+  { file = "CHANGELOG.md", search = "\\.\\.\\.HEAD", replace = "...v{{version}}", exactly = 1 },
+  { file = "CHANGELOG.md", search = "ReleaseDate", replace = "{{date}}", min = 1 },
+  { file = "CHANGELOG.md", search = "<!-- next-header -->", replace = "<!-- next-header -->\n\n## [Unreleased] - ReleaseDate", exactly = 1 },
+  { file = "CHANGELOG.md", search = "<!-- next-url -->", replace = "<!-- next-url -->\n[Unreleased]: https://github.com/headwind-sh/headwind/compare/v{{version}}...HEAD", exactly = 1 },
+]
