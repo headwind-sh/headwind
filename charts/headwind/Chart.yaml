@@ -3,7 +3,7 @@ name: headwind
 description: A Kubernetes operator to automate workload updates based on container image changes
 type: application
 version: 0.1.0
-appVersion: "0.1.0"
+appVersion: "0.1.1"
 
 keywords:
   - kubernetes

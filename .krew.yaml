@@ -3,7 +3,7 @@ kind: Plugin
 metadata:
   name: headwind
 spec:
-  version: v0.2.0
+  version: v0.1.1
   homepage: https://headwind.sh
   shortDescription: Kubernetes workload update automation
   description: |
@@ -29,7 +29,7 @@ spec:
       helm install headwind headwind/headwind -n headwind-system --create-namespace
 
     Or install from the manifest:
-      kubectl apply -f https://github.com/headwind-sh/headwind/releases/download/v0.2.0/headwind.yaml
+      kubectl apply -f https://github.com/headwind-sh/headwind/releases/download/v0.1.1/headwind.yaml
 
     For detailed documentation, visit: https://headwind.sh/docs
   platforms:
@@ -37,41 +37,41 @@ spec:
       matchLabels:
         os: linux
         arch: amd64
-    uri: https://github.com/headwind-sh/headwind/releases/download/v0.2.0/kubectl-headwind-linux-amd64.tar.gz
+    uri: https://github.com/headwind-sh/headwind/releases/download/v0.1.1/kubectl-headwind-linux-amd64.tar.gz
     sha256: PLACEHOLDER_LINUX_AMD64
     bin: kubectl-headwind
   - selector:
       matchLabels:
         os: linux
         arch: arm64
-    uri: https://github.com/headwind-sh/headwind/releases/download/v0.2.0/kubectl-headwind-linux-arm64.tar.gz
+    uri: https://github.com/headwind-sh/headwind/releases/download/v0.1.1/kubectl-headwind-linux-arm64.tar.gz
     sha256: PLACEHOLDER_LINUX_ARM64
     bin: kubectl-headwind
   - selector:
       matchLabels:
         os: darwin
         arch: amd64
-    uri: https://github.com/headwind-sh/headwind/releases/download/v0.2.0/kubectl-headwind-darwin-amd64.tar.gz
+    uri: https://github.com/headwind-sh/headwind/releases/download/v0.1.1/kubectl-headwind-darwin-amd64.tar.gz
     sha256: PLACEHOLDER_DARWIN_AMD64
     bin: kubectl-headwind
   - selector:
       matchLabels:
         os: darwin
         arch: arm64
-    uri: https://github.com/headwind-sh/headwind/releases/download/v0.2.0/kubectl-headwind-darwin-arm64.tar.gz
+    uri: https://github.com/headwind-sh/headwind/releases/download/v0.1.1/kubectl-headwind-darwin-arm64.tar.gz
     sha256: PLACEHOLDER_DARWIN_ARM64
     bin: kubectl-headwind
   - selector:
       matchLabels:
         os: windows
         arch: amd64
-    uri: https://github.com/headwind-sh/headwind/releases/download/v0.2.0/kubectl-headwind-windows-amd64.exe.tar.gz
+    uri: https://github.com/headwind-sh/headwind/releases/download/v0.1.1/kubectl-headwind-windows-amd64.exe.tar.gz
     sha256: PLACEHOLDER_WINDOWS_AMD64
     bin: kubectl-headwind.exe
   - selector:
       matchLabels:
         os: windows
         arch: arm64
-    uri: https://github.com/headwind-sh/headwind/releases/download/v0.2.0/kubectl-headwind-windows-arm64.exe.tar.gz
+    uri: https://github.com/headwind-sh/headwind/releases/download/v0.1.1/kubectl-headwind-windows-arm64.exe.tar.gz
     sha256: PLACEHOLDER_WINDOWS_ARM64
     bin: kubectl-headwind.exe
