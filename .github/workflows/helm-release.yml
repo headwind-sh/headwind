@@ -38,28 +38,32 @@ jobs:
         with:
           charts_dir: charts
           config: .github/cr.yaml
+          skip_upload: false
         env:
           CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
 
       - name: Update chart index in docs
         run: |
-          # Checkout main branch
-          git fetch origin main
-          git checkout main
+          # Install cr (chart-releaser) CLI to generate index
+          CR_URL="https://github.com/helm/chart-releaser/releases/download/v1.6.0"
+          curl -sSL "${CR_URL}/chart-releaser_1.6.0_linux_amd64.tar.gz" | tar xz
 
-          # Create charts directory in docs/static
-          mkdir -p docs/static/charts
+          # Generate index.yaml from all GitHub releases
+          ./cr index \
+            --owner headwind-sh \
+            --git-repo headwind \
+            --charts-repo https://headwind.sh/charts \
+            --index-path ./docs/static/charts \
+            --package-path .cr-release-packages
 
-          # Copy the index.yaml to docs/static/charts
-          if [ -f index.yaml ]; then
-            cp index.yaml docs/static/charts/index.yaml
-            echo "Copied index.yaml to docs/static/charts/"
-          else
-            echo "Warning: index.yaml not found"
-            exit 1
-          fi
-
-          # Commit and push to main
+          # Commit the updated index to main branch
           git add docs/static/charts/index.yaml
-          git diff --staged --quiet || git commit -m "chore: update Helm chart repository index [skip ci]"
-          git push origin main
+
+          if git diff --staged --quiet; then
+            echo "No changes to chart index"
+          else
+            git commit -m "chore: update Helm chart repository index [skip ci]"
+            git push origin main
+            echo "Chart index updated and pushed to main"
+            echo "Charts will be available at: https://headwind.sh/charts/"
+          fi
