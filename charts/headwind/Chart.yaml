@@ -41,6 +41,3 @@ annotations:
   artifacthub.io/prerelease: "false"
   artifacthub.io/recommendations: |
     - url: https://artifacthub.io/packages/helm/prometheus-community/kube-prometheus-stack
-  artifacthub.io/signKey: |
-    fingerprint: <placeholder>
-    url: https://headwind.sh/pgp-key.txt
