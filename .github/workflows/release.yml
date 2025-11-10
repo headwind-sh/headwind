@@ -90,9 +90,15 @@ jobs:
         if: matrix.target != 'aarch64-unknown-linux-gnu'
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Strip binary (Linux)
-        if: matrix.os == 'ubuntu-latest'
+      - name: Strip binary (Linux x86_64)
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
         run: strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
+
+      - name: Strip binary (Linux ARM64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update && sudo apt-get install -y binutils-aarch64-linux-gnu
+          aarch64-linux-gnu-strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
 
       - name: Upload binary to release
         env:
