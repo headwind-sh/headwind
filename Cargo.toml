@@ -76,10 +76,15 @@ tokio-stream = "0.1.17"
 [dev-dependencies]
 # No additional test dependencies needed yet - tests use core functionality
 
+# Optional features
+[features]
+default = []
+vendored-openssl = ["openssl/vendored"]
+
 # cargo-release configuration
-# Target-specific dependencies for cross-compilation
+# OpenSSL dependency for ARM64 cross-compilation (vendored feature is optional)
 [target.aarch64-unknown-linux-gnu.dependencies]
-openssl = { version = "0.10", features = ["vendored"] }
+openssl = { version = "0.10", optional = true }
 
 [package.metadata.release]
 # Version bumping
