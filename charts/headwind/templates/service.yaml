@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "headwind.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "headwind.labels" . | nindent 4 }}
+    {{- with .Values.service.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+  - port: {{ .Values.service.webhookPort }}
+    targetPort: webhook
+    protocol: TCP
+    name: webhook
+  - port: {{ .Values.service.apiPort }}
+    targetPort: api
+    protocol: TCP
+    name: api
+  - port: {{ .Values.service.uiPort }}
+    targetPort: ui
+    protocol: TCP
+    name: ui
+  - port: {{ .Values.service.metricsPort }}
+    targetPort: metrics
+    protocol: TCP
+    name: metrics
+  selector:
+    {{- include "headwind.selectorLabels" . | nindent 4 }}

@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-monitored
+  namespace: default
+  annotations:
+    # Update policy: patch, minor, major, all, glob, none
+    headwind.sh/policy: "minor"
+    # Require manual approval (default: true)
+    headwind.sh/require-approval: "true"
+    # Minimum seconds between updates (default: 300)
+    headwind.sh/min-update-interval: "300"
+    # Event source: webhook, polling, both (default: webhook)
+    headwind.sh/event-source: "both"
+    # Polling interval in seconds (overrides global polling interval)
+    headwind.sh/polling-interval: "60"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx-monitored
+  template:
+    metadata:
+      labels:
+        app: nginx-monitored
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.25.0
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "100m"
+          limits:
+            memory: "128Mi"
+            cpu: "200m"

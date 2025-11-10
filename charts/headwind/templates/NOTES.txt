@@ -1,0 +1,153 @@
+Thank you for installing {{ .Chart.Name }}!
+
+Your release is named {{ .Release.Name }}.
+
+## Getting Started
+
+Headwind is now running in namespace {{ .Release.Namespace }}.
+
+### Access the Web UI
+
+{{- if .Values.ingress.enabled }}
+{{- range .Values.ingress.hosts }}
+  {{- range .paths }}
+  {{- if eq .backend "ui" }}
+  UI: {{ if $.Values.ingress.tls }}https{{ else }}http{{ end }}://{{ .host }}{{ .path }}
+  {{- end }}
+  {{- end }}
+{{- end }}
+{{- else }}
+To access the Web UI, run:
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "headwind.fullname" . }} {{ .Values.service.uiPort }}:{{ .Values.service.uiPort }}
+
+Then visit: http://localhost:{{ .Values.service.uiPort }}
+{{- end }}
+
+### Access Endpoints
+
+{{- if .Values.ingress.enabled }}
+All endpoints are accessible via the Web UI host:
+{{- range .Values.ingress.hosts }}
+  {{- range .paths }}
+  {{- if eq .backend "ui" }}
+  - Dashboard: {{ if $.Values.ingress.tls }}https{{ else }}http{{ end }}://{{ .host }}
+  - Observability: {{ if $.Values.ingress.tls }}https{{ else }}http{{ end }}://{{ .host }}/observability
+  - Updates API: {{ if $.Values.ingress.tls }}https{{ else }}http{{ end }}://{{ .host }}/api/v1/updates
+  - Metrics API: {{ if $.Values.ingress.tls }}https{{ else }}http{{ end }}://{{ .host }}/api/v1/ui/metrics
+  {{- end }}
+  {{- end }}
+{{- end }}
+
+{{- range .Values.ingress.hosts }}
+  {{- range .paths }}
+  {{- if eq .backend "webhook" }}
+  - Webhook: {{ if $.Values.ingress.tls }}https{{ else }}http{{ end }}://{{ .host }}/webhook/registry
+  {{- end }}
+  {{- if eq .backend "metrics" }}
+  - Prometheus: {{ if $.Values.ingress.tls }}https{{ else }}http{{ end }}://{{ .host }}/metrics
+  {{- end }}
+  {{- end }}
+{{- end }}
+{{- else }}
+To access locally, use port-forward:
+
+  # Web UI and Dashboard
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "headwind.fullname" . }} {{ .Values.service.uiPort }}:{{ .Values.service.uiPort }}
+
+  # Then visit:
+  - Dashboard: http://localhost:{{ .Values.service.uiPort }}
+  - Observability: http://localhost:{{ .Values.service.uiPort }}/observability
+  - Updates API: http://localhost:{{ .Values.service.uiPort }}/api/v1/updates
+
+  # Or access individual services:
+  - Approval API: kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "headwind.fullname" . }} {{ .Values.service.apiPort }}:{{ .Values.service.apiPort }}
+  - Webhook: kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "headwind.fullname" . }} {{ .Values.service.webhookPort }}:{{ .Values.service.webhookPort }}
+  - Metrics: kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "headwind.fullname" . }} {{ .Values.service.metricsPort }}:{{ .Values.service.metricsPort }}
+{{- end }}
+
+### Configure Your Workloads
+
+To enable automatic updates for your Deployments, StatefulSets, DaemonSets, or HelmReleases,
+add Headwind annotations:
+
+Example Deployment:
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: my-app
+    annotations:
+      headwind.sh/policy: "minor"              # Update policy: patch, minor, major, all, glob, none
+      headwind.sh/require-approval: "true"     # Require manual approval (default: true)
+      headwind.sh/min-update-interval: "300"   # Minimum seconds between updates (default: 300)
+      headwind.sh/event-source: "webhook"      # Event source: webhook, polling, both (default: webhook)
+  spec:
+    template:
+      spec:
+        containers:
+        - name: my-app
+          image: myregistry.io/my-app:v1.2.0
+
+{{- if .Values.env.HEADWIND_POLLING_ENABLED }}
+
+### Registry Polling Enabled
+
+Registry polling is enabled with interval: {{ .Values.env.HEADWIND_POLLING_INTERVAL | default "300" }}s
+
+For resources that should be checked via polling, set:
+  annotations:
+    headwind.sh/event-source: "polling"
+
+{{- end }}
+
+### Configure Notifications
+
+{{- if or .Values.env.HEADWIND_SLACK_WEBHOOK_URL .Values.env.HEADWIND_TEAMS_WEBHOOK_URL .Values.env.HEADWIND_GENERIC_WEBHOOK_URL }}
+Notifications are configured for:
+{{- if .Values.env.HEADWIND_SLACK_WEBHOOK_URL }}
+  - Slack
+{{- end }}
+{{- if .Values.env.HEADWIND_TEAMS_WEBHOOK_URL }}
+  - Microsoft Teams
+{{- end }}
+{{- if .Values.env.HEADWIND_GENERIC_WEBHOOK_URL }}
+  - Generic Webhook
+{{- end }}
+{{- else }}
+
+To enable notifications, update your values.yaml with:
+  env:
+    HEADWIND_SLACK_WEBHOOK_URL: "https://hooks.slack.com/services/..."
+    # or
+    HEADWIND_TEAMS_WEBHOOK_URL: "https://outlook.office.com/webhook/..."
+    # or
+    HEADWIND_GENERIC_WEBHOOK_URL: "https://your-webhook-endpoint.com"
+{{- end }}
+
+### Metrics and Monitoring
+
+{{- if .Values.serviceMonitor.enabled }}
+Prometheus ServiceMonitor is enabled. Metrics will be scraped automatically.
+{{- else }}
+Metrics are available at: http://{{ include "headwind.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.metricsPort }}/metrics
+
+To enable Prometheus Operator integration, set:
+  serviceMonitor:
+    enabled: true
+{{- end }}
+
+### Documentation
+
+For more information:
+  - Documentation: https://headwind.sh
+  - GitHub: https://github.com/headwind-sh/headwind
+  - Issues: https://github.com/headwind-sh/headwind/issues
+
+### Available Update Policies
+
+  - patch: Only patch version updates (1.2.3 → 1.2.4)
+  - minor: Only minor version updates (1.2.3 → 1.3.0)
+  - major: Any version update including major (1.2.3 → 2.0.0)
+  - all: Any new version
+  - glob: Pattern-based matching (use with headwind.sh/pattern annotation)
+  - none: Disable updates (default)

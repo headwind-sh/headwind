@@ -1,0 +1,12 @@
+{{- if .Values.rbac.create -}}
+apiVersion: {{ include "headwind.rbac.apiVersion" . }}
+kind: ClusterRole
+metadata:
+  name: {{ include "headwind.fullname" . }}
+  labels:
+    {{- include "headwind.labels" . | nindent 4 }}
+rules:
+{{- with .Values.rbac.rules }}
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,127 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: helmrepositories.source.toolkit.fluxcd.io
+spec:
+  group: source.toolkit.fluxcd.io
+  names:
+    categories: []
+    kind: HelmRepository
+    plural: helmrepositories
+    shortNames: []
+    singular: helmrepository
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns: []
+    name: v1
+    schema:
+      openAPIV3Schema:
+        description: Auto-generated derived type for HelmRepositorySpec via `CustomResource`
+        properties:
+          spec:
+            description: HelmRepository defines a Helm chart repository (Flux CD v2 API)
+            properties:
+              certSecretRef:
+                description: Reference to a Secret containing TLS client certificate
+                nullable: true
+                properties:
+                  name:
+                    type: string
+                required:
+                - name
+                type: object
+              interval:
+                description: Interval at which to check the repository for updates
+                nullable: true
+                type: string
+              passCredentials:
+                description: Whether to pass credentials to hosts other than the URL host
+                nullable: true
+                type: boolean
+              provider:
+                description: Cloud provider for automatic authentication (generic, aws, azure, gcp)
+                nullable: true
+                type: string
+              secretRef:
+                description: Reference to a Secret containing authentication credentials
+                nullable: true
+                properties:
+                  name:
+                    type: string
+                required:
+                - name
+                type: object
+              timeout:
+                description: Timeout for repository operations
+                nullable: true
+                type: string
+              type:
+                description: Type of repository (default, oci)
+                nullable: true
+                type: string
+              url:
+                description: URL of the Helm repository (HTTP/HTTPS or OCI)
+                type: string
+            required:
+            - url
+            type: object
+          status:
+            nullable: true
+            properties:
+              artifact:
+                nullable: true
+                properties:
+                  digest:
+                    nullable: true
+                    type: string
+                  lastUpdateTime:
+                    nullable: true
+                    type: string
+                  path:
+                    nullable: true
+                    type: string
+                  revision:
+                    nullable: true
+                    type: string
+                  url:
+                    nullable: true
+                    type: string
+                type: object
+              conditions:
+                items:
+                  properties:
+                    lastTransitionTime:
+                      nullable: true
+                      type: string
+                    message:
+                      nullable: true
+                      type: string
+                    reason:
+                      nullable: true
+                      type: string
+                    status:
+                      type: string
+                    type:
+                      type: string
+                  required:
+                  - status
+                  - type
+                  type: object
+                nullable: true
+                type: array
+              observedGeneration:
+                format: int64
+                nullable: true
+                type: integer
+              url:
+                nullable: true
+                type: string
+            type: object
+        required:
+        - spec
+        title: HelmRepository
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

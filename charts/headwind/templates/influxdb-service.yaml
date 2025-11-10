@@ -1,0 +1,20 @@
+{{- if and .Values.observability.create .Values.observability.influxdb.enabled -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "headwind.fullname" . }}-influxdb
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "headwind.labels" . | nindent 4 }}
+    app.kubernetes.io/component: influxdb
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8086
+    targetPort: http
+    protocol: TCP
+    name: http
+  selector:
+    {{- include "headwind.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: influxdb
+{{- end }}

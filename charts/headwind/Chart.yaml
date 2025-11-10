@@ -1,0 +1,46 @@
+apiVersion: v2
+name: headwind
+description: A Kubernetes operator to automate workload updates based on container image changes
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+
+keywords:
+  - kubernetes
+  - operator
+  - automation
+  - gitops
+  - ci-cd
+  - image-updates
+  - helm
+
+home: https://headwind.sh
+sources:
+  - https://github.com/headwind-sh/headwind
+
+maintainers:
+  - name: Headwind Contributors
+    url: https://github.com/headwind-sh/headwind
+
+icon: https://headwind.sh/img/logo.svg
+
+annotations:
+  # Artifact Hub annotations
+  artifacthub.io/changes: |
+    - kind: added
+      description: Initial Helm chart release
+  artifacthub.io/containsSecurityUpdates: "false"
+  artifacthub.io/license: MIT
+  artifacthub.io/links: |
+    - name: Documentation
+      url: https://headwind.sh/docs
+    - name: GitHub
+      url: https://github.com/headwind-sh/headwind
+  artifacthub.io/operator: "true"
+  artifacthub.io/operatorCapabilities: Seamless Upgrades
+  artifacthub.io/prerelease: "false"
+  artifacthub.io/recommendations: |
+    - url: https://artifacthub.io/packages/helm/prometheus-community/kube-prometheus-stack
+  artifacthub.io/signKey: |
+    fingerprint: <placeholder>
+    url: https://headwind.sh/pgp-key.txt

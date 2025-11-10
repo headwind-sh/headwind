@@ -47,7 +47,29 @@ Headwind monitors container registries and automatically updates your Kubernetes
 
 ### Installation
 
-#### Option 1: Pre-built Container Images (Recommended)
+#### Option 1: Helm Chart (Recommended)
+
+The easiest way to install Headwind is via Helm:
+
+```bash
+# Add the Headwind Helm repository
+helm repo add headwind https://headwind.sh/charts
+helm repo update
+
+# Install Headwind
+helm install headwind headwind/headwind -n headwind-system --create-namespace
+
+# Optional: Install with InfluxDB observability stack
+helm install headwind headwind/headwind \
+  -n headwind-system --create-namespace \
+  --set observability.create=true \
+  --set observability.influxdb.enabled=true \
+  --set telegraf.enabled=true
+```
+
+See the [Helm Chart README](charts/headwind/README.md) for all configuration options.
+
+#### Option 2: Pre-built Container Images
 
 Pull the latest release from GitHub Container Registry or Google Artifact Registry:
 
@@ -89,7 +111,7 @@ kubectl apply -f deploy/k8s/service.yaml
 - **Architecture**: Multi-arch (amd64, arm64)
 - **Security**: Non-root user, no shell, minimal CVEs
 
-#### Option 2: Install from crates.io
+#### Option 3: Install from crates.io
 
 If you have Rust installed, you can install Headwind as a binary:
 

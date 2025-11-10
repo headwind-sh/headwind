@@ -1,0 +1,12 @@
+# Semgrep ignore patterns
+# See: https://semgrep.dev/docs/ignoring-files-folders-code/
+
+# GitHub Actions workflows - false positives on GITHUB_TOKEN usage
+.github/workflows/helm-release.yml
+
+# Helm chart templates - Go templating syntax confuses SAST scanners
+charts/*/templates/
+
+# Test files
+examples/
+tests/

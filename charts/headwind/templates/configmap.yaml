@@ -1,0 +1,25 @@
+{{- if .Values.configMap.create -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "headwind.configMapName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "headwind.labels" . | nindent 4 }}
+data:
+{{- if and .Values.observability.create .Values.observability.influxdb.enabled }}
+  observability.influxdb.enabled: "true"
+  observability.influxdb.url: "{{ include "headwind.influxdb.url" . }}"
+  observability.influxdb.org: "{{ .Values.observability.influxdb.organization }}"
+  observability.influxdb.bucket: "{{ .Values.observability.influxdb.bucket }}"
+  {{- $secretName := include "headwind.influxdb.secretName" . }}
+  {{- $secret := lookup "v1" "Secret" .Release.Namespace $secretName }}
+  {{- if $secret }}
+  observability.influxdb.token: "{{ index $secret.data .Values.observability.influxdb.adminTokenKey | b64dec }}"
+  {{- end }}
+  observability.metricsBackend: "influxdb"
+{{- end }}
+  {{- with .Values.configMap.data }}
+  {{- toYaml . | nindent 2 }}
+  {{- end }}
+{{- end }}

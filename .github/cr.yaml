@@ -1,0 +1,8 @@
+# Configuration for Helm chart-releaser
+# See: https://github.com/helm/chart-releaser
+
+owner: headwind-sh
+git-repo: headwind
+charts-repo-url: https://headwind.sh/charts
+skip-existing: true
+packages-with-index: true

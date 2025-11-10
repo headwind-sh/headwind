@@ -1,0 +1,34 @@
+{{- if .Values.telegraf.enabled -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "headwind.fullname" . }}-telegraf
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "headwind.labels" . | nindent 4 }}
+data:
+  telegraf.conf: |
+{{- if and .Values.observability.create .Values.observability.influxdb.enabled }}
+    # Auto-configured for bundled InfluxDB deployment
+    [agent]
+      interval = "30s"
+      round_interval = true
+      metric_batch_size = 1000
+      metric_buffer_limit = 10000
+      flush_interval = "10s"
+
+    # Scrape Headwind Prometheus metrics
+    [[inputs.prometheus]]
+      urls = ["http://localhost:9090/metrics"]
+      metric_version = 2
+
+    # Auto-configured InfluxDB v2 output
+    [[outputs.influxdb_v2]]
+      urls = ["{{ include "headwind.influxdb.url" . }}"]
+      token = "$INFLUX_TOKEN"
+      organization = "{{ .Values.observability.influxdb.organization }}"
+      bucket = "{{ .Values.observability.influxdb.bucket }}"
+{{- else }}
+{{ .Values.telegraf.config | indent 4 }}
+{{- end }}
+{{- end }}

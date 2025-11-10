@@ -1,0 +1,485 @@
+# Default values for headwind.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# Number of replicas for the headwind deployment
+replicaCount: 1
+
+image:
+  # Image repository
+  repository: ghcr.io/headwind-sh/headwind
+  # Overrides the image tag whose default is the chart appVersion
+  tag: ""
+  # Image pull policy
+  pullPolicy: IfNotPresent
+
+# Image pull secrets for private registries
+imagePullSecrets: []
+# - name: my-registry-secret
+
+# Override the name of the chart
+nameOverride: ""
+# Override the full name of the resources
+fullnameOverride: ""
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Automatically mount a ServiceAccount's API credentials?
+  automount: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+# Annotations to add to the deployment
+deploymentAnnotations: {}
+
+# Annotations to add to the pod
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "9090"
+  prometheus.io/path: "/metrics"
+
+# Labels to add to the pod
+podLabels: {}
+
+# Security context for the pod
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  fsGroup: 1001
+
+# Security context for the container
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 1001
+  capabilities:
+    drop:
+    - ALL
+
+# Service configuration for webhook endpoint
+service:
+  # Service type
+  type: ClusterIP
+  # Webhook port
+  webhookPort: 8080
+  # API port
+  apiPort: 8081
+  # UI port
+  uiPort: 8082
+  # Metrics port
+  metricsPort: 9090
+  # Annotations for the service
+  annotations: {}
+  # Labels for the service
+  labels: {}
+
+# Ingress configuration
+ingress:
+  # Enable ingress
+  enabled: false
+  # Ingress class name
+  className: ""
+  # Annotations for the ingress
+  annotations: {}
+  # Examples for different cloud providers:
+    #
+    # Google Cloud (GKE with GCE Ingress Controller):
+    # kubernetes.io/ingress.class: "gce"
+    # kubernetes.io/ingress.global-static-ip-name: "headwind-ip"
+    # ingress.gcp.kubernetes.io/pre-shared-cert: "headwind-cert"
+    # networking.gke.io/managed-certificates: "headwind-cert"
+    #
+    # AWS (ALB Ingress Controller):
+    # kubernetes.io/ingress.class: "alb"
+    # alb.ingress.kubernetes.io/scheme: internet-facing
+    # alb.ingress.kubernetes.io/target-type: ip
+    # alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:region:account:certificate/id
+    # alb.ingress.kubernetes.io/ssl-policy: ELBSecurityPolicy-TLS-1-2-2017-01
+    # alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    # alb.ingress.kubernetes.io/actions.ssl-redirect: >-
+    #   {"Type": "redirect", "RedirectConfig":
+    #    {"Protocol": "HTTPS", "Port": "443", "StatusCode": "HTTP_301"}}'
+    #
+    # Azure (Application Gateway Ingress Controller):
+    # kubernetes.io/ingress.class: "azure/application-gateway"
+    # appgw.ingress.kubernetes.io/ssl-redirect: "true"
+    # appgw.ingress.kubernetes.io/backend-protocol: "http"
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    #
+    # NGINX Ingress Controller (works on all clouds):
+    # kubernetes.io/ingress.class: "nginx"
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    # nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    # nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+
+  # Ingress hosts configuration
+  # By default, expose the Web UI (which includes its own API endpoints)
+  # You can add additional hosts for webhook and metrics endpoints
+  hosts:
+    # Web UI and dashboard (includes /api/v1/ui/* endpoints)
+    - host: headwind.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+          backend: ui
+  # Webhook endpoint for registry notifications (optional - usually internal)
+    # - host: headwind-webhook.example.com
+    #   paths:
+    #     - path: /
+    #       pathType: Prefix
+    #       backend: webhook
+    # Prometheus metrics endpoint (optional - for external Prometheus)
+    # - host: headwind-metrics.example.com
+    #   paths:
+    #     - path: /
+    #       pathType: Prefix
+    #       backend: metrics
+
+  # TLS configuration
+  tls: []
+  #  - secretName: headwind-tls
+  #    hosts:
+  #      - headwind.example.com
+
+# Resource limits and requests
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+# Liveness probe configuration
+livenessProbe:
+  httpGet:
+    path: /health
+    port: metrics
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# Readiness probe configuration
+readinessProbe:
+  httpGet:
+    path: /health
+    port: metrics
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity rules
+affinity: {}
+
+# Priority class name
+priorityClassName: ""
+
+# Pod disruption budget
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+  # maxUnavailable: 1
+
+# RBAC configuration
+rbac:
+  # Create RBAC resources
+  create: true
+  # Rules for the ClusterRole
+  rules:
+    - apiGroups: ["apps"]
+      resources: ["deployments", "statefulsets", "daemonsets"]
+      verbs: ["get", "list", "watch", "update", "patch"]
+    - apiGroups: [""]
+      resources: ["events"]
+      verbs: ["create", "patch"]
+    - apiGroups: [""]
+      resources: ["secrets"]
+      verbs: ["get", "list"]
+    - apiGroups: [""]
+      resources: ["configmaps"]
+      verbs: ["get", "list", "watch"]
+    - apiGroups: ["helm.toolkit.fluxcd.io"]
+      resources: ["helmreleases"]
+      verbs: ["get", "list", "watch", "update", "patch"]
+    - apiGroups: ["source.toolkit.fluxcd.io"]
+      resources: ["helmrepositories"]
+      verbs: ["get", "list"]
+    - apiGroups: ["headwind.sh"]
+      resources: ["updaterequests"]
+      verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    - apiGroups: ["headwind.sh"]
+      resources: ["updaterequests/status"]
+      verbs: ["get", "update", "patch"]
+
+# Environment variables
+env:
+  # Rust log level
+  RUST_LOG: "headwind=info,kube=info"
+  # Web UI URL for notifications (override with ingress URL)
+  HEADWIND_UI_URL: ""
+  # Polling configuration
+  HEADWIND_POLLING_ENABLED: "false"
+  HEADWIND_POLLING_INTERVAL: "300"
+  # Web UI authentication mode (none, simple, token, proxy)
+  HEADWIND_UI_AUTH_MODE: "none"
+  HEADWIND_UI_PROXY_HEADER: "X-Forwarded-User"
+
+# Notification configuration
+notifications:
+  # Create secret for notification webhooks
+  createSecret: true
+  # Slack notifications
+  slack:
+    enabled: false
+    webhookUrl: ""
+    channel: ""
+    username: "Headwind"
+    iconEmoji: ":sailboat:"
+  # Microsoft Teams notifications
+  teams:
+    enabled: false
+    webhookUrl: ""
+  # Generic webhook notifications
+  webhook:
+    enabled: false
+    url: ""
+  # Existing secret name (if createSecret is false)
+  existingSecret: ""
+
+# ConfigMap for additional configuration
+configMap:
+  # Create ConfigMap
+  create: true
+  # Additional configuration data
+  data: {}
+  # Example:
+  # HEADWIND_SOME_CONFIG: "value"
+
+# Secret for sensitive configuration
+secret:
+  # Create Secret
+  create: false
+  # Name of the secret (defaults to fullname)
+  name: ""
+  # Base64 encoded secret data
+  data: {}
+  # Example:
+  # HEADWIND_SLACK_WEBHOOK_URL: aHR0cHM6Ly9ob29rcy5zbGFjay5jb20v...
+  # Plain text secret data (will be base64 encoded)
+  stringData: {}
+  # Example:
+  # HEADWIND_SLACK_WEBHOOK_URL: "https://hooks.slack.com/services/..."
+
+# Custom Resource Definitions
+crds:
+  # Install CRDs
+  install: true
+  # Keep CRDs on chart uninstall
+  keep: true
+
+# Service Monitor for Prometheus Operator
+serviceMonitor:
+  # Create ServiceMonitor resource
+  enabled: false
+  # Additional labels for the ServiceMonitor
+  labels: {}
+  # Scrape interval
+  interval: 30s
+  # Scrape timeout
+  scrapeTimeout: 10s
+  # Relabelings
+  relabelings: []
+  # Metric relabelings
+  metricRelabelings: []
+
+# Pod Monitor for Prometheus Operator
+podMonitor:
+  # Create PodMonitor resource
+  enabled: false
+  # Additional labels for the PodMonitor
+  labels: {}
+  # Scrape interval
+  interval: 30s
+  # Scrape timeout
+  scrapeTimeout: 10s
+  # Relabelings
+  relabelings: []
+  # Metric relabelings
+  metricRelabelings: []
+
+# Network Policy
+networkPolicy:
+  # Create NetworkPolicy
+  enabled: false
+  # Policy types
+  policyTypes:
+    - Ingress
+    - Egress
+  # Ingress rules
+  ingress:
+    - from:
+      - namespaceSelector: {}
+      ports:
+      - protocol: TCP
+        port: 8080  # webhook
+      - protocol: TCP
+        port: 8081  # api
+      - protocol: TCP
+        port: 8082  # ui
+      - protocol: TCP
+        port: 9090  # metrics
+  # Egress rules
+  egress:
+    - to:
+      - namespaceSelector: {}
+      ports:
+      - protocol: TCP
+        port: 443   # HTTPS (Kubernetes API, registries)
+      - protocol: TCP
+        port: 80    # HTTP
+      - protocol: TCP
+        port: 53    # DNS
+      - protocol: UDP
+        port: 53    # DNS
+
+# Extra manifests to deploy
+extraManifests: []
+# - apiVersion: v1
+#   kind: ConfigMap
+#   metadata:
+#     name: extra-config
+
+# Extra volumes
+extraVolumes: []
+# - name: config
+#   configMap:
+#     name: my-config
+
+# Extra volume mounts
+extraVolumeMounts: []
+# - name: config
+#   mountPath: /config
+
+# Extra environment variables
+extraEnv: []
+# - name: CUSTOM_VAR
+#   value: "custom-value"
+
+# Extra environment variables from ConfigMap/Secret
+extraEnvFrom: []
+# - configMapRef:
+#     name: my-configmap
+
+# Init containers
+initContainers: []
+# - name: init
+#   image: busybox:latest
+#   command: ['sh', '-c', 'echo "Initializing..."']
+
+# Sidecar containers
+sidecars: []
+# - name: sidecar
+#   image: nginx:alpine
+#   ports:
+#   - containerPort: 80
+
+# Telegraf sidecar for metrics collection (InfluxDB, VictoriaMetrics, etc.)
+telegraf:
+  # Enable Telegraf sidecar
+  enabled: false
+  # Telegraf image
+  image:
+    repository: telegraf
+    tag: "1.28-alpine"
+    pullPolicy: IfNotPresent
+  # Resources for Telegraf sidecar
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+  # Telegraf configuration
+  # This scrapes Headwind's Prometheus metrics and sends to configured outputs
+  config: |
+    [agent]
+      interval = "30s"
+      round_interval = true
+      metric_batch_size = 1000
+      metric_buffer_limit = 10000
+      flush_interval = "10s"
+
+    # Scrape Headwind Prometheus metrics
+    [[inputs.prometheus]]
+      urls = ["http://localhost:9090/metrics"]
+      metric_version = 2
+
+    # Example InfluxDB v2 output (configure with your details)
+    # [[outputs.influxdb_v2]]
+    #   urls = ["http://influxdb:8086"]
+    #   token = "$INFLUX_TOKEN"
+    #   organization = "my-org"
+    #   bucket = "headwind"
+
+    # Example VictoriaMetrics output
+    # [[outputs.http]]
+    #   url = "http://victoria-metrics:8428/api/v1/write"
+    #   data_format = "prometheusremotewrite"
+
+# Optional observability stack deployment
+# Deploy InfluxDB for users without existing observability infrastructure
+# See issue #83 for implementation details
+observability:
+  # Create optional observability stack
+  create: false
+
+  # InfluxDB deployment (auto-configures Telegraf sidecar)
+  influxdb:
+    # Enable InfluxDB deployment
+    enabled: false
+    # InfluxDB version
+    version: "2.7"
+    # Storage retention (in hours)
+    retentionHours: 720  # 30 days
+    # Storage size
+    storageSize: 100Gi
+    # Storage class
+    storageClass: ""
+    # Organization name
+    organization: "headwind"
+    # Bucket name
+    bucket: "metrics"
+    # Admin user
+    adminUser: "admin"
+    # Admin password (leave empty to auto-generate)
+    adminPassword: ""
+    # Existing secret for admin credentials (overrides adminPassword)
+    existingSecret: ""
+    # Secret keys
+    adminPasswordKey: "admin-password"
+    adminTokenKey: "admin-token"
+    # Ingress for InfluxDB UI
+    ingress:
+      enabled: false
+      className: ""
+      annotations: {}
+      hosts:
+        - host: influxdb.example.com
+          paths:
+            - path: /
+              pathType: Prefix
+      tls: []

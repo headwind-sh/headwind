@@ -385,6 +385,187 @@ Headwind Web UI supports four authentication modes via `HEADWIND_UI_AUTH_MODE` e
 
 **Important**: Remember to increment metrics when implementing new features!
 
+#### 9. Helm Chart (`charts/headwind/`)
+
+**Purpose**: Official Helm chart for deploying Headwind to Kubernetes clusters
+
+**Status**: ✅ **PRODUCTION READY** - Full chart with InfluxDB observability integration
+
+**Key Files**:
+- `Chart.yaml` - Chart metadata and version
+- `values.yaml` - Configuration parameters and defaults
+- `README.md` - Comprehensive user documentation
+- `templates/` - Kubernetes resource templates
+
+**Important Templates**:
+- `deployment.yaml` - Main Headwind deployment with optional Telegraf sidecar
+- `service.yaml` - Multi-port service (webhook:8080, api:8081, ui:8082, metrics:9090)
+- `ingress.yaml` - Optional ingress with multi-backend support
+- `configmap.yaml` - Configuration including InfluxDB token injection
+- `influxdb-statefulset.yaml` - Optional InfluxDB deployment
+- `influxdb-secret.yaml` - InfluxDB credentials with token persistence
+- `rbac.yaml` - ServiceAccount, ClusterRole, ClusterRoleBinding
+
+**Helm Repository**: `https://headwind.sh/charts`
+
+**Installation**:
+```bash
+helm repo add headwind https://headwind.sh/charts
+helm install headwind headwind/headwind -n headwind-system --create-namespace
+```
+
+**Publishing**: Automated via `.github/workflows/helm-release.yml`
+- Triggers on changes to `charts/headwind/**` in main branch
+- Uses `helm/chart-releaser-action` to package and publish
+- Creates GitHub releases with chart `.tgz` files
+- Updates `charts/index.yaml` in `gh-pages` branch
+- Served at `https://headwind.sh/charts/index.yaml`
+
+**Key Features**:
+1. **Token Persistence**: InfluxDB tokens persist across helm upgrades using `lookup` function
+2. **ConfigMap Integration**: Tokens automatically injected into ConfigMap for Rust code access
+3. **Resource Policy**: Secrets marked with `helm.sh/resource-policy: keep` for safety
+4. **Multi-backend Ingress**: Supports separate hosts for UI, webhook, and metrics
+5. **Observability Stack**: Optional integrated InfluxDB + Telegraf deployment
+
+**Configuration Examples**:
+```yaml
+# Enable observability
+observability:
+  create: true
+  influxdb:
+    enabled: true
+    storageSize: 100Gi
+
+telegraf:
+  enabled: true
+
+# Enable ingress
+ingress:
+  enabled: true
+  className: nginx
+  hosts:
+    - host: headwind.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+          backend: ui
+
+# Enable notifications
+notifications:
+  slack:
+    enabled: true
+    webhookUrl: "https://hooks.slack.com/services/..."
+```
+
+**Critical Implementation Details**:
+
+1. **InfluxDB Token Management** (`templates/influxdb-secret.yaml`):
+   - Uses `lookup` function to check for existing secret
+   - Generates random 64-char token on first install
+   - Reuses existing token on upgrades (prevents regeneration)
+   - Adds `helm.sh/resource-policy: keep` annotation
+
+2. **ConfigMap Token Injection** (`templates/configmap.yaml`):
+   - Reads token from InfluxDB secret using `lookup`
+   - Injects as `observability.influxdb.token` key
+   - Enables Rust code to read token from ConfigMap
+   - Fixes 401 unauthorized errors
+
+**See Also**:
+- `charts/headwind/README.md` - User documentation
+- `HELM_REPO.md` - Maintainer guide for publishing charts
+- `.github/cr.yaml` - Chart releaser configuration
+
+#### 10. Observability Stack
+
+**Purpose**: Integrated metrics collection, storage, and visualization
+
+**Status**: ✅ **FULLY FUNCTIONAL** - InfluxDB integration complete
+
+**Components**:
+1. **InfluxDB 2.7** - Time-series database for metrics storage
+2. **Telegraf Sidecar** - Scrapes Prometheus metrics and writes to InfluxDB
+3. **Observability Dashboard** (`src/ui/routes.rs`) - Real-time visualization
+
+**Deployment** (via Helm):
+```yaml
+observability:
+  create: true
+  influxdb:
+    enabled: true
+    version: "2.7"
+    retentionHours: 720  # 30 days
+    storageSize: 100Gi
+    organization: "headwind"
+    bucket: "metrics"
+    adminUser: "admin"
+    adminPassword: ""  # Auto-generated
+
+telegraf:
+  enabled: true
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+```
+
+**InfluxDB Configuration**:
+- **Automatic Setup**: Organization, bucket, and admin user created on first start
+- **Token Management**: Admin token auto-generated and persisted
+- **Persistent Storage**: Uses PersistentVolumeClaim for data retention
+- **Retention Policy**: Configurable retention period (default: 30 days)
+
+**Telegraf Configuration**:
+- **Input**: Prometheus scraper (http://localhost:9090/metrics)
+- **Output**: InfluxDB v2 (http://headwind-influxdb:8086)
+- **Flush Interval**: 10 seconds
+- **Batch Size**: 1000 metrics
+
+**Metrics Flow**:
+```
+Headwind Rust App
+  → Prometheus Metrics (port 9090)
+    → Telegraf Sidecar
+      → InfluxDB
+        → Observability Dashboard (port 8082/observability)
+```
+
+**Dashboard Features**:
+- **Multi-backend Support**: Auto-detects Prometheus, VictoriaMetrics, or InfluxDB
+- **Real-time Metrics**: Updates every 30 seconds
+- **Time-series Charts**: Historical trends for all metrics
+- **Metric Cards**: Current values for key metrics
+- **Hot-reload**: Configuration changes picked up automatically
+
+**Configuration Loading** (`src/config/mod.rs`):
+- Loads from ConfigMap (`headwind-config`) and Secret (`headwind-secrets`)
+- Supports hot-reload via Kubernetes watchers
+- InfluxDB token read from `observability.influxdb.token` ConfigMap key
+- Falls back to environment variable `HEADWIND_INFLUXDB_TOKEN`
+
+**Troubleshooting**:
+
+1. **401 Unauthorized Errors**:
+   - Verify token matches between secret and ConfigMap
+   - Check ConfigMap has `observability.influxdb.token` key
+   - Restart Headwind deployment to reload configuration
+
+2. **Token Mismatch After Upgrade**:
+   - Ensure `lookup` function in `influxdb-secret.yaml` is present
+   - Delete and recreate InfluxDB StatefulSet if needed
+   - Token should persist across helm upgrades
+
+3. **Metrics Not Showing**:
+   - Check Telegraf logs for write errors
+   - Verify InfluxDB is running and healthy
+   - Test direct query: `influx query 'from(bucket: "metrics") |> range(start: -1h)'`
+
+**See Also**:
+- `docs/docs/configuration/observability.md` - User documentation
+- `charts/headwind/templates/influxdb-*.yaml` - InfluxDB templates
+- `src/metrics/client.rs` - InfluxDB query client
+
 ### Data Models (`src/models/`)
 
 #### Policy Models (`models/policy.rs`)
@@ -949,5 +1130,5 @@ For questions about this codebase, open an issue on GitHub with the `question` l
 
 ---
 
-Last Updated: 2025-11-08
-Version: 0.2.0-alpha (Core functionality complete, StatefulSet/DaemonSet/Helm support added with direct updates, awaiting integration tests)
+Last Updated: 2025-11-10
+Version: 0.1.0 (Production-ready Helm chart with InfluxDB observability, automated publishing to headwind.sh/charts)

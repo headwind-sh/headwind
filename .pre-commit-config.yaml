@@ -43,7 +43,7 @@ repos:
       - id: check-yaml
         name: Check YAML syntax
         args: ['--allow-multiple-documents']
-        exclude: ^examples/
+        exclude: ^(examples/|charts/.*templates/)
       - id: check-added-large-files
         name: Check for large files
         args: ['--maxkb=1000']
@@ -66,6 +66,7 @@ repos:
             {extends: default,
             rules: {line-length: {max: 120}, document-start: disable,
             indentation: disable, truthy: disable}}
+        exclude: ^charts/.*templates/
 
   # Markdown linting
   # Temporarily disabled due to SSL certificate issues
