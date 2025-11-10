@@ -155,7 +155,7 @@ jobs:
     name: Publish to crates.io
     needs: [create-release, build-binaries]  # Wait for binaries to build first
     runs-on: ubuntu-latest
-    environment: crates-io  # Use GitHub environment for better secret management
+    environment: crates.io  # Use GitHub environment for better secret management
     steps:
       - uses: actions/checkout@v5
 
