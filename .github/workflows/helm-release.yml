@@ -41,27 +41,25 @@ jobs:
         env:
           CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
 
-      - name: Checkout gh-pages branch
-        uses: actions/checkout@v4
-        with:
-          ref: gh-pages
-          path: gh-pages
-
-      - name: Copy chart index to charts/ subdirectory
+      - name: Update chart index in docs
         run: |
-          # Create charts directory if it doesn't exist
-          mkdir -p gh-pages/charts
+          # Checkout main branch
+          git fetch origin main
+          git checkout main
 
-          # Copy the index.yaml to charts/ subdirectory
+          # Create charts directory in docs/static
+          mkdir -p docs/static/charts
+
+          # Copy the index.yaml to docs/static/charts
           if [ -f index.yaml ]; then
-            cp index.yaml gh-pages/charts/index.yaml
-            echo "Copied index.yaml to charts/ subdirectory"
+            cp index.yaml docs/static/charts/index.yaml
+            echo "Copied index.yaml to docs/static/charts/"
+          else
+            echo "Warning: index.yaml not found"
+            exit 1
           fi
 
-          # Commit and push
-          cd gh-pages
-          git config user.name "$GITHUB_ACTOR"
-          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
-          git add charts/index.yaml
-          git diff --staged --quiet || git commit -m "Update Helm chart repository index"
-          git push origin gh-pages
+          # Commit and push to main
+          git add docs/static/charts/index.yaml
+          git diff --staged --quiet || git commit -m "chore: update Helm chart repository index [skip ci]"
+          git push origin main
