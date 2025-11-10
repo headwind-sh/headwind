@@ -44,18 +44,21 @@ Headwind monitors container registries and automatically updates your Kubernetes
 
 - Kubernetes cluster (1.25+)
 - kubectl configured
-- Docker (for building the image)
 
 ### Installation
 
+#### Option 1: Pre-built Container Images (Recommended)
+
+Pull the latest release from GitHub Container Registry or Google Artifact Registry:
+
 ```bash
-# Build the Docker image
-docker build -t headwind:latest .
+# From GitHub Container Registry (ghcr.io)
+docker pull ghcr.io/headwind-sh/headwind:latest
 
-# Load into your cluster (for kind/minikube)
-kind load docker-image headwind:latest  # or minikube image load headwind:latest
+# Or from Google Artifact Registry (if you have access)
+docker pull us-docker.pkg.dev/YOUR_PROJECT/headwind/headwind:latest
 
-# Apply all Kubernetes manifests
+# Apply Kubernetes manifests
 kubectl apply -f deploy/k8s/namespace.yaml
 kubectl apply -f deploy/k8s/crds/updaterequest.yaml
 
@@ -63,6 +66,77 @@ kubectl apply -f deploy/k8s/crds/updaterequest.yaml
 # (Skip if you already have Flux CD installed)
 kubectl apply -f deploy/k8s/crds/helmrepository.yaml
 
+kubectl apply -f deploy/k8s/rbac.yaml
+
+# Update deployment to use the pulled image
+kubectl apply -f deploy/k8s/deployment.yaml
+kubectl apply -f deploy/k8s/service.yaml
+```
+
+**Image Locations:**
+- **GitHub Container Registry**: `ghcr.io/headwind-sh/headwind:VERSION`
+- **Google Artifact Registry**: `us-docker.pkg.dev/PROJECT/headwind/headwind:VERSION`
+
+**Available Tags:**
+- `latest` - Latest stable release
+- `X.Y.Z` - Specific version (e.g., `0.1.0`)
+- `X.Y` - Latest patch version (e.g., `0.1`)
+- `X` - Latest minor version (e.g., `0`)
+
+**Image Details:**
+- **Base**: Chainguard wolfi-base (enterprise security)
+- **Size**: ~58MB (73% smaller than Ubuntu-based images)
+- **Architecture**: Multi-arch (amd64, arm64)
+- **Security**: Non-root user, no shell, minimal CVEs
+
+#### Option 2: Install from crates.io
+
+If you have Rust installed, you can install Headwind as a binary:
+
+```bash
+# Install from crates.io
+cargo install headwind
+
+# Run directly (requires KUBECONFIG)
+headwind
+```
+
+#### Option 3: Pre-built Binaries
+
+Download pre-built binaries from [GitHub Releases](https://github.com/headwind-sh/headwind/releases):
+
+**Platforms:**
+- Linux: `headwind-linux-amd64`, `headwind-linux-arm64`
+- macOS: `headwind-darwin-amd64` (Intel), `headwind-darwin-arm64` (Apple Silicon)
+- Windows: `headwind-windows-amd64.exe`, `headwind-windows-arm64.exe`
+
+```bash
+# Example: Download and install Linux binary
+wget https://github.com/headwind-sh/headwind/releases/download/v0.1.0/headwind-linux-amd64
+chmod +x headwind-linux-amd64
+sudo mv headwind-linux-amd64 /usr/local/bin/headwind
+
+# Run
+headwind
+```
+
+#### Option 4: Build from Source
+
+```bash
+# Clone the repository
+git clone https://github.com/headwind-sh/headwind.git
+cd headwind
+
+# Build the Docker image
+docker build -t headwind:latest .
+
+# Load into your cluster (for kind/minikube/Docker Desktop)
+kind load docker-image headwind:latest  # or minikube image load headwind:latest
+
+# Apply all Kubernetes manifests
+kubectl apply -f deploy/k8s/namespace.yaml
+kubectl apply -f deploy/k8s/crds/updaterequest.yaml
+kubectl apply -f deploy/k8s/crds/helmrepository.yaml  # Optional
 kubectl apply -f deploy/k8s/rbac.yaml
 kubectl apply -f deploy/k8s/deployment.yaml
 kubectl apply -f deploy/k8s/service.yaml
