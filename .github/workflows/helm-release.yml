@@ -75,9 +75,14 @@ jobs:
           if git diff --staged --quiet; then
             echo "No changes to chart index"
           else
+            # Fetch latest and reset to it (discard any intermediate changes to index.yaml)
+            git fetch origin main
+            git reset --soft origin/main
+            git add docs/static/charts/
+
+            # Commit and push
             git commit -m "chore: update Helm chart repository index [skip ci]"
-            git pull --rebase origin main
-            git push origin main
+            git push origin HEAD:main
             echo "Chart index updated and pushed to main"
             echo "Charts will be available at: https://headwind.sh/charts/"
           fi
