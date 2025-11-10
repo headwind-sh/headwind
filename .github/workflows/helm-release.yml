@@ -33,13 +33,39 @@ jobs:
         with:
           version: v3.14.0
 
-      - name: Run chart-releaser
-        uses: helm/chart-releaser-action@v1.6.0
-        with:
-          charts_dir: charts
-          config: .github/cr.yaml
+      - name: Install chart-releaser
+        run: |
+          VERSION="1.6.1"
+          OS="$(uname | tr '[:upper:]' '[:lower:]')"
+          ARCH="$(uname -m)"
+          URL="https://github.com/helm/chart-releaser/releases/download"
+          wget -q "${URL}/v${VERSION}/chart-releaser_${VERSION}_${OS}_${ARCH}.tar.gz"
+          tar xzf "chart-releaser_${VERSION}_${OS}_${ARCH}.tar.gz"
+          sudo mv cr /usr/local/bin/cr
+          rm -f "chart-releaser_${VERSION}_${OS}_${ARCH}.tar.gz"
+
+      - name: Package and release charts
         env:
           CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+        run: |
+          # Load config
+          owner=$(yq eval '.owner' .github/cr.yaml)
+          repo=$(yq eval '.git-repo' .github/cr.yaml)
+
+          # Package charts
+          for chart in charts/*; do
+            if [[ -d "$chart" ]]; then
+              echo "Packaging $chart..."
+              cr package "$chart" --config .github/cr.yaml
+            fi
+          done
+
+          # Upload chart packages to GitHub Releases (skips existing)
+          cr upload --config .github/cr.yaml \
+            --owner "$owner" \
+            --git-repo "$repo" \
+            --skip-existing \
+            --token "$CR_TOKEN"
 
       - name: Update chart index in docs
         env:
