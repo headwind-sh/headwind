@@ -1,5 +1,10 @@
 # Headwind
 
+[![CI](https://github.com/headwind-sh/headwind/actions/workflows/ci.yml/badge.svg)](https://github.com/headwind-sh/headwind/actions/workflows/ci.yml)
+[![Security](https://github.com/headwind-sh/headwind/actions/workflows/security.yml/badge.svg)](https://github.com/headwind-sh/headwind/actions/workflows/security.yml)
+[![Release](https://github.com/headwind-sh/headwind/actions/workflows/release.yml/badge.svg)](https://github.com/headwind-sh/headwind/actions/workflows/release.yml)
+[![Documentation](https://github.com/headwind-sh/headwind/actions/workflows/deploy-docs.yml/badge.svg)](https://github.com/headwind-sh/headwind/actions/workflows/deploy-docs.yml)
+
 A Kubernetes operator for automating workload updates based on container image changes, written in Rust.
 
 Headwind monitors container registries and automatically updates your Kubernetes workloads when new images are available, with intelligent semantic versioning policies and approval workflows.
