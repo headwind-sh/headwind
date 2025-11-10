@@ -103,6 +103,7 @@ jobs:
     name: Build and Push Docker Images
     needs: create-release
     runs-on: ubuntu-latest
+    environment: gcp-artifact-repo
     steps:
       - uses: actions/checkout@v5
 
