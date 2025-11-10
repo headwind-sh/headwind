@@ -38,8 +38,10 @@ jobs:
           VERSION="1.6.1"
           OS="$(uname | tr '[:upper:]' '[:lower:]')"
           ARCH="$(uname -m)"
+          # chart-releaser uses 'amd64' instead of 'x86_64'
+          [[ "$ARCH" == "x86_64" ]] && ARCH="amd64"
           URL="https://github.com/helm/chart-releaser/releases/download"
-          wget -q "${URL}/v${VERSION}/chart-releaser_${VERSION}_${OS}_${ARCH}.tar.gz"
+          wget "${URL}/v${VERSION}/chart-releaser_${VERSION}_${OS}_${ARCH}.tar.gz"
           tar xzf "chart-releaser_${VERSION}_${OS}_${ARCH}.tar.gz"
           sudo mv cr /usr/local/bin/cr
           rm -f "chart-releaser_${VERSION}_${OS}_${ARCH}.tar.gz"
