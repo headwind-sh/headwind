@@ -110,6 +110,7 @@ jobs:
           gh release upload ${{ github.ref_name }} ${{ matrix.asset_name }}
 
       - name: Create Krew-compatible archive
+        shell: bash
         run: |
           # Create directory for Krew archive
           mkdir -p krew-package
@@ -129,6 +130,7 @@ jobs:
           tar -czf "${ARCHIVE}" -C krew-package .
 
       - name: Generate checksum
+        shell: bash
         run: |
           # Generate SHA256 checksum
           ARCHIVE="kubectl-headwind-${{ matrix.asset_name }}.tar.gz"
