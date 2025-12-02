@@ -22,7 +22,7 @@ entries:
         url: https://headwind.sh/pgp-key.txt
     apiVersion: v2
     appVersion: 0.1.0
-    created: "2025-11-10T22:59:25.941557638Z"
+    created: "2025-12-02T05:11:13.973288101Z"
     description: A Kubernetes operator to automate workload updates based on container
       image changes
     digest: 755d8fbf10a6189e08415de1765d837496a5d2cbc3a9c1b71668ed1e56a42e99
@@ -46,4 +46,4 @@ entries:
     urls:
     - https://headwind.sh/charts/headwind-0.1.0.tgz
     version: 0.1.0
-generated: "2025-11-10T22:59:25.940158942Z"
+generated: "2025-12-02T05:11:13.971906599Z"
