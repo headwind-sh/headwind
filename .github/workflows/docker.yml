@@ -51,7 +51,7 @@ jobs:
     if: always() && (needs.wait-for-release.result == 'success' || github.event_name == 'workflow_dispatch')
     environment: gcp-artifact-repo
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.tag || github.ref }}
 
