@@ -65,7 +65,7 @@ lazy_static = "1.5"
 # Encoding
 base64 = "0.22"
 hex = "0.4"
-sha2 = "0.10"
+sha2 = "0.11"
 
 # Async trait
 async-trait = "0.1"
